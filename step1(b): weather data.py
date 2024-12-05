@@ -100,11 +100,16 @@ def clean_month_weather_data_hourly(csv_file):
 def clean_month_weather_data_daily(csv_file):
     # Load the weather data
     weather_data = pd.read_csv(csv_file)
-    weather_data = weather_data[['DATE', 'HourlyPresentWeatherType']]
-    weather_data.columns = ['datetime', 'weather_type']
+    weather_data = weather_data[['DATE', 'HourlyPresentWeatherType', 'HourlyDryBulbTemperature', 'HourlyPrecipitation', 'HourlyWindSpeed']]
+    weather_data.columns = ['datetime', 'weather_type', 'temperature', 'precipitation', 'wind_speed']
 
-    # Extract date from datetime
+    # Convert datetime to date only
     weather_data['date'] = pd.to_datetime(weather_data['datetime']).dt.date
+
+    # Convert numerical columns to numeric type
+    weather_data['temperature'] = pd.to_numeric(weather_data['temperature'], errors='coerce')
+    weather_data['precipitation'] = pd.to_numeric(weather_data['precipitation'], errors='coerce')
+    weather_data['wind_speed'] = pd.to_numeric(weather_data['wind_speed'], errors='coerce')
 
     # Weather mapping dictionary
     weather_mapping = {
@@ -140,7 +145,7 @@ def clean_month_weather_data_daily(csv_file):
     # Map weather types to more general categories
     weather_data['MappedWeather'] = weather_data['weather_type'].map(weather_mapping).fillna('other')
 
-    # Group by date and determine daily weather type (priority: snow > rain > other)
+    # Group by date and determine daily weather type and averages
     def determine_weather_type(weather_series):
         if 'snow' in weather_series.values:
             return 'snow'
@@ -151,7 +156,10 @@ def clean_month_weather_data_daily(csv_file):
 
     # Aggregating daily data
     daily_aggregated = weather_data.groupby('date').agg(
-        DailyWeatherType=('MappedWeather', determine_weather_type)
+        DailyWeatherType=('MappedWeather', determine_weather_type),
+        AvgTemperature=('temperature', 'mean'),
+        AvgPrecipitation=('precipitation', 'mean'),
+        AvgWindSpeed=('wind_speed', 'mean')
     ).reset_index()
 
     return daily_aggregated
