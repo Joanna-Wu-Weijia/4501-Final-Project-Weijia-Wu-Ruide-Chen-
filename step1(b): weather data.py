@@ -96,77 +96,61 @@ def clean_month_weather_data_hourly(csv_file):
 
 
 
-
-
-
-
-
-
-
+import pandas as pd
+import numpy as np
 
 def clean_month_weather_data_daily(csv_file):
-   weather_data = pd.read_csv(csv_file)
-   weather_data = weather_data[['DATE', 'HourlyPresentWeatherType', 'HourlyDryBulbTemperature', 'HourlyPrecipitation', 'HourlyWindSpeed']]
-   
-   # 转换为日期时间并提取日期部分
-   weather_data['DATE'] = pd.to_datetime(weather_data['DATE']).dt.date
-   
-   # 按日期分组并处理数据
-   daily_data = pd.DataFrame()
-   daily_data['date'] = pd.to_datetime(weather_data['DATE'].unique())
-   daily_data = daily_data.set_index('date')
-   
-   # 计算每日平均温度和风速
-   daily_data['daily temperature'] = weather_data.groupby('DATE')['HourlyDryBulbTemperature'].mean()
-   daily_data['daily windspeed'] = weather_data.groupby('DATE')['HourlyWindSpeed'].mean()
-   daily_data['daily precipitation'] = weather_data.groupby('DATE')['HourlyPrecipitation'].mean()
-   
-   # 处理天气类型
-   weather_mapping = {
-       '-RA:02 |RA |RA': 'rain',
-       '-RA:02 BR:1 |RA |RA': 'rain', 
-       'RA:02 BR:1 |RA |RA': 'rain',
-       '+RA:02 |RA |RA': 'rain',
-       '+RA:02 FG:2 |FG RA |RA': 'rain',
-       '|RA |': 'rain',
-       'RA:02 |RA |RA': 'rain',
-       '+RA:02 BR:1 |RA |RA': 'rain',
-       '-RA:02 ||': 'rain',
-       'RA:02 FG:2 |FG RA |RA': 'rain',
-       '-RA:02 FG:2 |FG RA |RA': 'rain',
-       '-SN:03 |SN |': 'snow',
-       '-SN:03 BR:1 |SN |': 'snow',
-       '|SN |': 'snow',
-       '+SN:03 |SN s |': 'snow',
-       '+SN:03 FZ:8 FG:2 |FG SN |': 'snow',
-       '-SN:03 FZ:8 FG:2 |FG SN |': 'snow',
-       'SN:03 FZ:8 FG:2 |FG SN |': 'snow',
-       'SN:03 |SN s |s': 'snow',
-       '-SN:03 FG:2 |FG SN |': 'snow',
-       'SN:03 FG:2 |FG SN |': 'snow',
-       'BR:1 ||': 'other',
-       'HZ:7 |FU |HZ': 'other',
-       'FG:2 |FG |': 'other',
-       'HZ:7 ||HZ': 'other',
-       'UP:09 ||': 'unknown',
-       'UP:09 BR:1 ||': 'other'
-   }
-   
-   # 映射天气类型
-   weather_data['weather_type'] = weather_data['HourlyPresentWeatherType'].map(weather_mapping)
-   
-   # 确定每天的天气类型（优先级：snow > rain > other）
-   def get_daily_weather(group):
-       if 'snow' in group.values:
-           return 'snow'
-       elif 'rain' in group.values:
-           return 'rain'
-       else:
-           return 'other'
-           
-   daily_data['daily weather type'] = weather_data.groupby('DATE')['weather_type'].apply(get_daily_weather)
-   
-   # 添加weekday
-   daily_data['weekday_num'] = daily_data.index.weekday
-   
-   return daily_data.reset_index()
+    # Load the weather data
+    weather_data = pd.read_csv(csv_file)
+    weather_data = weather_data[['DATE', 'HourlyPresentWeatherType']]
+    weather_data.columns = ['date', 'weather_type']
+
+    # Weather mapping dictionary
+    weather_mapping = {
+        '-RA:02 |RA |RA': 'rain',
+        '-RA:02 BR:1 |RA |RA': 'rain', 
+        'RA:02 BR:1 |RA |RA': 'rain',
+        '+RA:02 |RA |RA': 'rain',
+        '+RA:02 FG:2 |FG RA |RA': 'rain',
+        '|RA |': 'rain',
+        'RA:02 |RA |RA': 'rain',
+        '+RA:02 BR:1 |RA |RA': 'rain',
+        '-RA:02 ||': 'rain',
+        'RA:02 FG:2 |FG RA |RA': 'rain',
+        '-RA:02 FG:2 |FG RA |RA': 'rain',
+        '-SN:03 |SN |': 'snow',
+        '-SN:03 BR:1 |SN |': 'snow',
+        '|SN |': 'snow',
+        '+SN:03 |SN s |': 'snow',
+        '+SN:03 FZ:8 FG:2 |FG SN |': 'snow',
+        '-SN:03 FZ:8 FG:2 |FG SN |': 'snow',
+        'SN:03 FZ:8 FG:2 |FG SN |': 'snow',
+        'SN:03 |SN s |s': 'snow',
+        '-SN:03 FG:2 |FG SN |': 'snow',
+        'SN:03 FG:2 |FG SN |': 'snow',
+        'BR:1 ||': 'other',
+        'HZ:7 |FU |HZ': 'other',
+        'FG:2 |FG |': 'other',
+        'HZ:7 ||HZ': 'other',
+        'UP:09 ||': 'unknown',
+        'UP:09 BR:1 ||': 'other'
+    }
+
+    # Map weather types to more general categories
+    weather_data['MappedWeather'] = weather_data['weather_type'].map(weather_mapping).fillna('other')
+
+    # Group by DATE and aggregate
+    def determine_weather_type(weather_series):
+        if 'snow' in weather_series.values:
+            return 'snow'
+        elif 'rain' in weather_series.values:
+            return 'rain'
+        else:
+            return 'other'
+
+    # Aggregating daily data
+    daily_aggregated = weather_data.groupby('date').agg(
+        DailyWeatherType=('MappedWeather', determine_weather_type)
+    ).reset_index()
+
+    return daily_aggregated
