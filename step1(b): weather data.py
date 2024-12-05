@@ -101,7 +101,10 @@ def clean_month_weather_data_daily(csv_file):
     # Load the weather data
     weather_data = pd.read_csv(csv_file)
     weather_data = weather_data[['DATE', 'HourlyPresentWeatherType']]
-    weather_data.columns = ['date', 'weather_type']
+    weather_data.columns = ['datetime', 'weather_type']
+
+    # Extract date from datetime
+    weather_data['date'] = pd.to_datetime(weather_data['datetime']).dt.date
 
     # Weather mapping dictionary
     weather_mapping = {
@@ -137,7 +140,7 @@ def clean_month_weather_data_daily(csv_file):
     # Map weather types to more general categories
     weather_data['MappedWeather'] = weather_data['weather_type'].map(weather_mapping).fillna('other')
 
-    # Group by DATE and aggregate
+    # Group by date and determine daily weather type (priority: snow > rain > other)
     def determine_weather_type(weather_series):
         if 'snow' in weather_series.values:
             return 'snow'
