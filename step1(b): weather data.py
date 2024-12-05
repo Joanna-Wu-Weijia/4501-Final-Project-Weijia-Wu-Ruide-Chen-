@@ -96,8 +96,6 @@ def clean_month_weather_data_hourly(csv_file):
 
 
 
-import pandas as pd
-import numpy as np
 
 def clean_month_weather_data_daily(csv_file):
     # Load the weather data
