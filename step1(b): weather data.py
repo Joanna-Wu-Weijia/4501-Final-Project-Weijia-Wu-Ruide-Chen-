@@ -154,12 +154,15 @@ def clean_month_weather_data_daily(csv_file):
         else:
             return 'other'
 
-    # Aggregating daily data
-    daily_aggregated = weather_data.groupby('date').agg(
-        DailyWeatherType=('MappedWeather', determine_weather_type),
-        AvgTemperature=('temperature', 'mean'),
-        AvgPrecipitation=('precipitation', 'mean'),
-        AvgWindSpeed=('wind_speed', 'mean')
-    ).reset_index()
+    daily_aggregated = weather_data.groupby('date').agg({
+        'MappedWeather': determine_weather_type,
+        'temperature': 'mean',
+        'precipitation': 'mean',
+        'wind_speed': 'mean'
+        }).reset_index()
+
+
+    daily_aggregated.columns = ['date', 'daily weather type', 'daily temperature', 
+                          'daily precipitation', 'daily windspeed']
 
     return daily_aggregated
