@@ -141,10 +141,8 @@ for row in result_tuples:
     print(row)
 
 ### Q5
-# Establish connection to the SQLite database
 conn = sqlite3.connect('project.db')
 
-# SQL Query to find the top 10 snowiest days based on precipitation
 query = """
 WITH SnowDays AS (
     SELECT 
