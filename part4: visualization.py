@@ -72,3 +72,56 @@ plt.xticks(ticks=range(1, 13), labels=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
 plt.legend()
 plt.grid(visible=True)
 plt.show()
+
+### v3:
+combined_trips = pd.concat([taxi_data[['pickup_datetime', 'trip_distance', 'dropoff_coords']],
+                            uber_data[['pickup_datetime', 'trip_distance', 'dropoff_coords']]])
+
+start_date = '2020-01-01'
+end_date = '2024-08-31'
+combined_trips = combined_trips[(combined_trips['pickup_datetime'] >= start_date) &
+                                (combined_trips['pickup_datetime'] <= end_date)]
+
+# bounding boxes for the three major airports
+LGA_BOX_COORDS = ((40.763589, -73.891745), (40.778865, -73.854838))
+JFK_BOX_COORDS = ((40.639263, -73.795642), (40.651376, -73.766264))
+EWR_BOX_COORDS = ((40.686794, -74.194028), (40.699680, -74.165205))
+
+# if a coordinate falls within a bounding box
+def is_within_bbox(coord, bbox):
+    lat, lon = coord
+    (lat_min, lon_min), (lat_max, lon_max) = bbox
+    return lat_min <= lat <= lat_max and lon_min <= lon <= lon_max
+
+# weekday with most popular trip
+combined_trips['weekday'] = combined_trips['pickup_datetime'].dt.day_name()
+
+def determine_airport(row):
+    coords = eval(row['dropoff_coords'].replace('POINT(', '').replace(')', ''))
+    if is_within_bbox(coords, LGA_BOX_COORDS):
+        return 'LGA'
+    elif is_within_bbox(coords, JFK_BOX_COORDS):
+        return 'JFK'
+    elif is_within_bbox(coords, EWR_BOX_COORDS):
+        return 'EWR'
+    else:
+        return None
+
+combined_trips['airport'] = combined_trips.apply(determine_airport, axis=1)
+airport_trips = combined_trips[combined_trips['airport'].isin(['LGA', 'JFK', 'EWR'])]
+airport_popularity = airport_trips.groupby(['airport', 'weekday']).size().reset_index(name='count')
+airport_popularity_pivot = airport_popularity.pivot(index='weekday', columns='airport', values='count').reindex(
+    ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+)
+
+plt.figure(figsize=(12, 6))
+airport_popularity_pivot.plot(kind='bar', figsize=(15, 12))
+plt.xlabel('Day of the Week')
+plt.ylabel('Number of Drop-offs')
+plt.title('Most Popular Drop-off Days by Airport (January 2020 - August 2024)')
+plt.xticks(rotation=45)
+plt.legend(title='Airport')
+plt.grid(visible=True)
+
+plt.tight_layout()
+plt.show()
