@@ -117,14 +117,13 @@ def get_and_clean_taxi_month(url):
         # 随机抽样
         taxi_df = taxi_df.sample(n=sample_size, random_state=42)
         
-        # 定义必需列和可选列
+    # 定义必需列和可选列
         required_columns = [
-            'VendorID', 'tpep_pickup_datetime', 'tpep_dropoff_datetime',
-            'passenger_count', 'trip_distance', 'PULocationID', 'DOLocationID',
-            'payment_type', 'fare_amount', 'tip_amount', 'total_amount'
+            'tpep_pickup_datetime', 'tpep_dropoff_datetime', 'RateCodeID',
+            'trip_distance', 'PULocationID', 'DOLocationID', 'extra'
+            'fare_amount', 'total_amount', 'mta_tax', 'airport_fee', 
+            'Improvement_surcharge', 'tolls_amount', 'congestion_surcharge' 
         ]
-        
-        optional_columns = ['RateCodeID', 'airport_fee']
         
         # 检查必需列是否存在
         if not all(col in taxi_df.columns for col in required_columns):
