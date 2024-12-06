@@ -96,26 +96,24 @@ def find_uber_parquet_urls(all_urls):
     if len(uber_links) > 0:
         print("Sample URL:", uber_links[0])
     return uber_links
-    
+
+
 def get_and_clean_taxi_month(url):
    try:
-       # 检查是否已下载
        filename = url.split('/')[-1]
        if os.path.exists(f"data/{filename}"):
            taxi_df = pd.read_parquet(f"data/{filename}")
        else:
-           # 下载数据
            taxi_df = pd.read_parquet(url)
-           # 保存到本地
            os.makedirs("data", exist_ok=True)
            taxi_df.to_parquet(f"data/{filename}")
        
-       # 计算样本量并抽样
+       # get sample with sample size calculate
        population_size = len(taxi_df)
        sample_size = calculate_sample_size(population_size)
        taxi_df = taxi_df.sample(n=sample_size, random_state=42)
        
-       # 定义必需列和可选列
+       # column need to keep
        required_columns = [
            'tpep_pickup_datetime', 'tpep_dropoff_datetime',
            'PULocationID', 'DOLocationID', 'RatecodeID'
@@ -125,16 +123,15 @@ def get_and_clean_taxi_month(url):
            'tolls_amount', 'improvement_surcharge', 'total_amount',
            'congestion_surcharge', 'Airport_fee'
        ]
-       # 检查必需列是否存在
+       
        missing_columns = [col for col in required_columns if col not in taxi_df.columns]
        if missing_columns:
            raise ValueError(f"Missing required columns: {missing_columns}")
        
-       # 获取可用的列并筛选
        available_columns = required_columns + [col for col in optional_columns if col in taxi_df.columns]
        taxi_df = taxi_df[available_columns]
        
-       # 加载taxi zones并处理坐标
+       # load taxi zone and apply cord
        loaded_taxi_zones = load_taxi_zones()
        taxi_df['pickup_coords'] = taxi_df['PULocationID'].apply(
            lambda loc_id: lookup_coords_for_taxi_zone_id(loc_id, loaded_taxi_zones)
@@ -142,38 +139,26 @@ def get_and_clean_taxi_month(url):
        taxi_df['dropoff_coords'] = taxi_df['DOLocationID'].apply(
            lambda loc_id: lookup_coords_for_taxi_zone_id(loc_id, loaded_taxi_zones)
        )
-       
-       # 清理坐标数据
        taxi_df = taxi_df.dropna(subset=['pickup_coords', 'dropoff_coords'])
        
-       def is_in_nyc(coords):
-           if not coords:
-               return False
-           lat, lon = coords
-           return (NEW_YORK_BOX_COORDS[0][0] <= lat <= NEW_YORK_BOX_COORDS[1][0] and
-                  NEW_YORK_BOX_COORDS[0][1] <= lon <= NEW_YORK_BOX_COORDS[1][1])
-       
-       taxi_df = taxi_df[taxi_df['pickup_coords'].apply(is_in_nyc) & 
-                        taxi_df['dropoff_coords'].apply(is_in_nyc)]
-       
-       # 处理时间相关数据
+       # processing datetime data
        taxi_df['tpep_pickup_datetime'] = pd.to_datetime(taxi_df['tpep_pickup_datetime'])
        taxi_df['tpep_dropoff_datetime'] = pd.to_datetime(taxi_df['tpep_dropoff_datetime'])
        taxi_df["weekday_num"] = taxi_df["tpep_dropoff_datetime"].dt.weekday + 1
        
-       # 计算total_amount
+       # total_amount
        taxi_df['total_amount'] = taxi_df.apply(
            lambda row: (
                row['extra'] + row['fare_amount'] + row['mta_tax'] + 
                row['airport_fee'] + row['Improvement_surcharge'] + 
                row['tolls_amount'] + row['congestion_surcharge']
            ) if pd.isna(row['total_amount']) and 
-                row[['fare_amount', 'mta_tax']].notna().all()
+                row[['fare_amount']].notna().all()
            else row['total_amount'],
            axis=1
        )
        
-       # 设置机场信息
+       # airport
        taxi_df['airport'] = 'not airport'
        taxi_df.loc[taxi_df['RatecodeID'] == 2, 'airport'] = 'JFK'
        taxi_df.loc[taxi_df['RatecodeID'] == 3, 'airport'] = 'EWR'
@@ -196,25 +181,44 @@ def get_and_clean_taxi_month(url):
        print(f"Error processing {url}: {e}")
        return None
 
+
+def get_and_clean_taxi_data(parquet_urls):
+    all_taxi_dataframes = []
+    
+    for parquet_url in parquet_urls:
+        taxi_df = get_and_clean_taxi_month(parquet_url)
+        if taxi_df is not None:
+            all_taxi_dataframes.append(taxi_df)
+    
+    if not all_taxi_dataframes:
+        raise ValueError("No valid taxi data found")
+        
+    taxi_data = pd.concat(all_taxi_dataframes)
+    return taxi_data
+
+def get_taxi_data():
+    all_urls = get_all_urls_from_tlc_page(TLC_URL)
+    all_parquet_urls = find_taxi_parquet_urls(all_urls)
+    taxi_data = get_and_clean_taxi_data(all_parquet_urls)
+    return taxi_data
+
+taxi_data = get_taxi_data()
+
 def get_and_clean_uber_month(url):
     try:
-        # 检查是否已下载
         filename = url.split('/')[-1]
         if os.path.exists(f"data/{filename}"):
             uber_df = pd.read_parquet(f"data/{filename}")
         else:
-            # 下载数据
             uber_df = pd.read_parquet(url)
-            # 保存到本地
             os.makedirs("data", exist_ok=True)
             uber_df.to_parquet(f"data/{filename}")
         
-        # 计算样本量
+        # get sample
         population_size2 = len(uber_df)
         sample_size2 = calculate_sample_size(population_size2)
         uber_df = uber_df.sample(n=sample_size2, random_state=42)
         
-        # 定义必需列和可选列
         required_columns = [
             'hvfhs_license_num', 'pickup_datetime', 'dropoff_datetime', 'PULocationID', 'DOLocationID'
         ]
@@ -223,22 +227,18 @@ def get_and_clean_uber_month(url):
             'trip_miles', 'base_passenger_fare', 'tolls', 'sales_tax', 'congestion_surcharge',
             'airport_fee', 'driver_pay', 'bcf'
         ]
-        
-        # 检查必需列是否存在
         if not all(col in uber_df.columns for col in required_columns):
             raise ValueError(f"Missing required columns: {[col for col in required_columns if col not in uber_df.columns]}")
-        
-        # 获取可用的可选列
+
+        # get available column and uber data only
         available_columns = required_columns + [col for col in optional_columns if col in uber_df.columns]
         uber_df = uber_df[available_columns]
-        
-        # 过滤Uber数据，只选择hvfhs_license_num为'HV0003'的数据
         uber_df = uber_df[uber_df['hvfhs_license_num'] == 'HV0003']
         
-        # 加载 taxi zones 数据
+        # load taxi zone
         loaded_taxi_zones = load_taxi_zones()
         
-        # 转换位置ID到坐标
+        # apply to cord
         uber_df['pickup_coords'] = uber_df['PULocationID'].apply(
             lambda loc_id: lookup_coords_for_taxi_zone_id(loc_id, loaded_taxi_zones)
         )
@@ -247,23 +247,12 @@ def get_and_clean_uber_month(url):
         )
         uber_df = uber_df.dropna(subset=['pickup_coords', 'dropoff_coords'])
         
-        # 验证坐标是否在纽约范围内
-        def is_in_nyc(coords):
-            if not coords:
-                return False
-            lat, lon = coords
-            return (NEW_YORK_BOX_COORDS[0][0] <= lat <= NEW_YORK_BOX_COORDS[1][0] and
-                    NEW_YORK_BOX_COORDS[0][1] <= lon <= NEW_YORK_BOX_COORDS[1][1])
-        
-        uber_df = uber_df[uber_df['pickup_coords'].apply(is_in_nyc) & 
-                          uber_df['dropoff_coords'].apply(is_in_nyc)]
-        
-        # 数据类型转换和时间验证
+        # datetime
         uber_df['pickup_datetime'] = pd.to_datetime(uber_df['pickup_datetime'])
         uber_df['dropoff_datetime'] = pd.to_datetime(uber_df['dropoff_datetime'])
         uber_df["weekday_num"] = uber_df["dropoff_datetime"].dt.weekday + 1
         
-        # 计算总金额
+        # total amount
         uber_df['total_amount'] = uber_df.apply(
             lambda row: (
                 row['base_passenger_fare'] + row['tolls'] + row['sales_tax'] + 
@@ -273,10 +262,8 @@ def get_and_clean_uber_month(url):
             axis=1
         )
         
-        # 删除不需要的列
         uber_df = uber_df.drop(columns=['PULocationID', 'DOLocationID'])
         
-        # 填充空白值为 0
         columns_to_fill = [
             'trip_miles', 'base_passenger_fare', 'tolls', 'sales_tax', 'congestion_surcharge',
             'airport_fee', 'driver_pay', 'bcf'
@@ -288,7 +275,7 @@ def get_and_clean_uber_month(url):
     except Exception as e:
         print(f"Error processing {url}: {e}")
         return None
-        
+
 def get_and_clean_uber_data(parquet_urls):
     all_uber_dataframes = []
     
@@ -312,17 +299,6 @@ def get_uber_data():
     return taxi_data
 
 uber_data = get_uber_data()
-
-
-def get_all_weather_csvs(directory=None):
-    weather_urls = [
-        "https://raw.githubusercontent.com/Joanna-Wu-Weijia/4501-Final-Project/refs/heads/main/weather%20data/2020_weather.csv",
-        "https://raw.githubusercontent.com/Joanna-Wu-Weijia/4501-Final-Project/refs/heads/main/weather%20data/2021_weather.csv",
-        "https://raw.githubusercontent.com/Joanna-Wu-Weijia/4501-Final-Project/refs/heads/main/weather%20data/2022_weather.csv",
-        "https://raw.githubusercontent.com/Joanna-Wu-Weijia/4501-Final-Project/refs/heads/main/weather%20data/2023_weather.csv",
-        "https://raw.githubusercontent.com/Joanna-Wu-Weijia/4501-Final-Project/refs/heads/main/weather%20data/2024_weather.csv",
-    ]
-    return weather_urls
 
 
 
