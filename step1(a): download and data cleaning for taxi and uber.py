@@ -96,100 +96,107 @@ def find_uber_parquet_urls(all_urls):
     if len(uber_links) > 0:
         print("Sample URL:", uber_links[0])
     return uber_links
+    
 def get_and_clean_taxi_month(url):
-    try:
-        # 检查是否已下载
-        filename = url.split('/')[-1]
-        if os.path.exists(f"data/{filename}"):
-            taxi_df = pd.read_parquet(f"data/{filename}")
-        else:
-            # 下载数据
-            taxi_df = pd.read_parquet(url)
-            # 保存到本地
-            os.makedirs("data", exist_ok=True)
-            taxi_df.to_parquet(f"data/{filename}")
-        
-        # 计算样本量
-        population_size = len(taxi_df)
-        sample_size = calculate_sample_size(population_size)
-        
-        # 随机抽样
-        taxi_df = taxi_df.sample(n=sample_size, random_state=42)
-        
-        # 定义必需列和可选列
-        required_columns = [
-            'tpep_pickup_datetime', 'tpep_dropoff_datetime', 'RatecodeID',
-            'trip_distance', 'PULocationID', 'DOLocationID', 'extra'
-            'fare_amount', 'total_amount', 'mta_tax', 'airport_fee', 
-            'improvement_surcharge', 'tolls_amount', 'congestion_surcharge' 
-        ]
-        
-        # 检查必需列是否存在
-        if not all(col in taxi_df.columns for col in required_columns):
-            raise ValueError(f"Missing required columns: {[col for col in required_columns if col not in taxi_df.columns]}")
-        
-        # 只保留存在的列
-        taxi_df = taxi_df[available_columns]
+   try:
+       # 检查是否已下载
+       filename = url.split('/')[-1]
+       if os.path.exists(f"data/{filename}"):
+           taxi_df = pd.read_parquet(f"data/{filename}")
+       else:
+           # 下载数据
+           taxi_df = pd.read_parquet(url)
+           # 保存到本地
+           os.makedirs("data", exist_ok=True)
+           taxi_df.to_parquet(f"data/{filename}")
+       
+       # 计算样本量并抽样
+       population_size = len(taxi_df)
+       sample_size = calculate_sample_size(population_size)
+       taxi_df = taxi_df.sample(n=sample_size, random_state=42)
+       
+       # 定义必需列和可选列
+       required_columns = [
+           'tpep_pickup_datetime', 'tpep_dropoff_datetime',
+           'PULocationID', 'DOLocationID', 'RatecodeID'
+       ]
+       optional_columns = [
+           'trip_distance', 'extra', 'mta_tax', 'tip_amount', 
+           'tolls_amount', 'improvement_surcharge', 'total_amount',
+           'congestion_surcharge', 'Airport_fee'
+       ]
+       # 检查必需列是否存在
+       missing_columns = [col for col in required_columns if col not in taxi_df.columns]
+       if missing_columns:
+           raise ValueError(f"Missing required columns: {missing_columns}")
+       
+       # 获取可用的列并筛选
+       available_columns = required_columns + [col for col in optional_columns if col in taxi_df.columns]
+       taxi_df = taxi_df[available_columns]
+       
+       # 加载taxi zones并处理坐标
+       loaded_taxi_zones = load_taxi_zones()
+       taxi_df['pickup_coords'] = taxi_df['PULocationID'].apply(
+           lambda loc_id: lookup_coords_for_taxi_zone_id(loc_id, loaded_taxi_zones)
+       )
+       taxi_df['dropoff_coords'] = taxi_df['DOLocationID'].apply(
+           lambda loc_id: lookup_coords_for_taxi_zone_id(loc_id, loaded_taxi_zones)
+       )
+       
+       # 清理坐标数据
+       taxi_df = taxi_df.dropna(subset=['pickup_coords', 'dropoff_coords'])
+       
+       def is_in_nyc(coords):
+           if not coords:
+               return False
+           lat, lon = coords
+           return (NEW_YORK_BOX_COORDS[0][0] <= lat <= NEW_YORK_BOX_COORDS[1][0] and
+                  NEW_YORK_BOX_COORDS[0][1] <= lon <= NEW_YORK_BOX_COORDS[1][1])
+       
+       taxi_df = taxi_df[taxi_df['pickup_coords'].apply(is_in_nyc) & 
+                        taxi_df['dropoff_coords'].apply(is_in_nyc)]
+       
+       # 处理时间相关数据
+       taxi_df['tpep_pickup_datetime'] = pd.to_datetime(taxi_df['tpep_pickup_datetime'])
+       taxi_df['tpep_dropoff_datetime'] = pd.to_datetime(taxi_df['tpep_dropoff_datetime'])
+       taxi_df["weekday_num"] = taxi_df["tpep_dropoff_datetime"].dt.weekday + 1
+       
+       # 计算total_amount
+       taxi_df['total_amount'] = taxi_df.apply(
+           lambda row: (
+               row['extra'] + row['fare_amount'] + row['mta_tax'] + 
+               row['airport_fee'] + row['Improvement_surcharge'] + 
+               row['tolls_amount'] + row['congestion_surcharge']
+           ) if pd.isna(row['total_amount']) and 
+                row[['extra', 'fare_amount', 'mta_tax', 'airport_fee', 
+                     'Improvement_surcharge', 'tolls_amount', 
+                     'congestion_surcharge']].notna().all()
+           else row['total_amount'],
+           axis=1
+       )
+       
+       # 设置机场信息
+       taxi_df['airport'] = 'not airport'
+       taxi_df.loc[taxi_df['RatecodeID'] == 2, 'airport'] = 'JFK'
+       taxi_df.loc[taxi_df['RatecodeID'] == 3, 'airport'] = 'EWR'
+       taxi_df.loc[
+           (taxi_df['Airport_fee'] == 1.75) & (taxi_df['RatecodeID'] != 2),
+           'airport'
+       ] = 'LGA'
 
-        # 加载taxi zones数据
-        loaded_taxi_zones = load_taxi_zones()
-        
-        # 转换位置ID到坐标
-        taxi_df['pickup_coords'] = taxi_df['PULocationID'].apply(
-            lambda loc_id: lookup_coords_for_taxi_zone_id(loc_id, loaded_taxi_zones)
-        )
-        taxi_df['dropoff_coords'] = taxi_df['DOLocationID'].apply(
-            lambda loc_id: lookup_coords_for_taxi_zone_id(loc_id, loaded_taxi_zones)
-        )
-        
-        # 数据清洗
-        taxi_df = taxi_df.dropna(subset=['pickup_coords', 'dropoff_coords'])
-        
-        def is_in_nyc(coords):
-            if not coords:
-                return False
-            lat, lon = coords
-            return (NEW_YORK_BOX_COORDS[0][0] <= lat <= NEW_YORK_BOX_COORDS[1][0] and
-                   NEW_YORK_BOX_COORDS[0][1] <= lon <= NEW_YORK_BOX_COORDS[1][1])
-        
-        taxi_df = taxi_df[taxi_df['pickup_coords'].apply(is_in_nyc) & 
-                         taxi_df['dropoff_coords'].apply(is_in_nyc)]
-        
-        taxi_df['tpep_pickup_datetime'] = pd.to_datetime(taxi_df['tpep_pickup_datetime'])
-        taxi_df['tpep_dropoff_datetime'] = pd.to_datetime(taxi_df['tpep_dropoff_datetime'])
-
-        # 引入weekday的num
-        taxi_df["weekday_num"] = taxi_df["tpep_dropoff_datetime"].dt.weekday + 1
-
-        # 确保 total_amount 数据的完整性
-        taxi_df['total_amount'] = taxi_df.apply(
-            lambda row: (
-                row['extra'] + row['fare_amount'] + row['mta_tax'] + 
-                row['airport_fee'] + row['Improvement_surcharge'] + 
-                row['tolls_amount'] + row['congestion_surcharge']
-            ) if pd.isna(row['total_amount']) and 
-                 row[['extra', 'fare_amount', 'mta_tax', 'airport_fee', 
-                      'Improvement_surcharge', 'tolls_amount', 
-                      'congestion_surcharge']].notna().all()
-            else row['total_amount'],
-            axis=1
-        )
-        
-        # 设置机场信息
-        taxi_df['airport'] = 'not airport'
-        
-        taxi_df.loc[taxi_df['RatecodeID'] == 2, 'airport'] = 'JFK'
-        taxi_df.loc[taxi_df['RatecodeID'] == 3, 'airport'] = 'EWR'
-        taxi_df.loc[
-            (taxi_df['Airport_fee'] == 1.75) & (taxi_df['RatecodeID'] != 2),
-            'airport'
-        ] = 'LGA'
-
-        return taxi_df
-        
-    except Exception as e:
-        print(f"Error processing {url}: {e}")
-        return None
+       taxi_df = taxi_df.drop(columns=['PULocationID', 'DOLocationID'])
+       taxi_df = taxi_df.rename(columns={'tpep_pickup_datetime': 'pickup_datetime', 'tpep_dropoff_datetime': 'dropoff_datetime'})
+       columns_to_fill = [
+           'trip_distance', 'extra', 'mta_tax', 'tip_amount', 'tolls_amount', 
+           'improvement_surcharge', 'total_amount', 'congestion_surcharge', 'Airport_fee'
+            ]
+       taxi_df[columns_to_fill] = taxi_df[columns_to_fill].fillna(0)
+       
+       return taxi_df
+       
+   except Exception as e:
+       print(f"Error processing {url}: {e}")
+       return None
 
 def get_and_clean_uber_month(url):
     try:
