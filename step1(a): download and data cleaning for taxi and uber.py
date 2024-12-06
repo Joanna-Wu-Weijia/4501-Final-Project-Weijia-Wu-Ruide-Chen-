@@ -168,9 +168,7 @@ def get_and_clean_taxi_month(url):
                row['airport_fee'] + row['Improvement_surcharge'] + 
                row['tolls_amount'] + row['congestion_surcharge']
            ) if pd.isna(row['total_amount']) and 
-                row[['extra', 'fare_amount', 'mta_tax', 'airport_fee', 
-                     'Improvement_surcharge', 'tolls_amount', 
-                     'congestion_surcharge']].notna().all()
+                row[['fare_amount', 'mta_tax']].notna().all()
            else row['total_amount'],
            axis=1
        )
