@@ -92,50 +92,156 @@ percentile_95_result = pd.read_sql_query(QUERY_3, con=engine)
 write_query_to_file(QUERY_3, QUERY_3_FILENAME)
 
 ### Q4
+import sqlite3
+
 # Establish connection to the SQLite database
 conn = sqlite3.connect('project.db')
 
-# SQL query
+# SQL Query to find the top 10 snowiest days based on precipitation
 query = """
-WITH DailyRideStats AS (
+WITH SnowDays AS (
+    SELECT 
+        date AS snow_date,
+        avg_precipitation AS total_precipitation
+    FROM daily_weather
+    WHERE daily_weather_type = 'snow'
+),
+DailyRideCounts AS (
     SELECT 
         DATE(pickup_datetime) AS ride_date,
-        COUNT(*) AS total_rides,
-        AVG(trip_distance) AS avg_distance
+        COUNT(*) AS total_rides
     FROM (
-        SELECT pickup_datetime, trip_distance FROM taxi_trips
+        SELECT pickup_datetime FROM taxi_trips
         UNION ALL
-        SELECT pickup_datetime, trip_miles AS trip_distance FROM uber_trips
+        SELECT pickup_datetime FROM uber_trips
     )
-    WHERE strftime('%Y', pickup_datetime) = '2023'
     GROUP BY DATE(pickup_datetime)
-),
-WeatherStats AS (
-    SELECT 
-        date AS weather_date,
-        avg_precipitation,
-        avg_windspeed
-    FROM daily_weather
-    WHERE strftime('%Y', date) = '2023'
 )
 SELECT 
-    r.ride_date AS date,
-    r.total_rides,
-    r.avg_distance,
-    w.avg_precipitation,
-    w.avg_windspeed
-FROM DailyRideStats r
-LEFT JOIN WeatherStats w
-ON r.ride_date = w.weather_date
-ORDER BY r.total_rides DESC
+    s.snow_date AS date,
+    s.total_precipitation,
+    COALESCE(d.total_rides, 0) AS total_rides
+FROM SnowDays s
+LEFT JOIN DailyRideCounts d
+ON s.snow_date = d.ride_date
+ORDER BY s.total_precipitation DESC
 LIMIT 10;
 """
 
-# Execute the query and fetch results
-result_df = pd.read_sql_query(query, conn)
-
-# Display the result
-print(result_df)
+# Execute the query and fetch the results into tuples
+cursor = conn.cursor()
+cursor.execute(query)
+result_tuples = cursor.fetchall()
 
 # Close the connection
 conn.close()
+
+# Display the tuples
+for row in result_tuples:
+    print(row)
+
+### Q5
+# Establish connection to the SQLite database
+conn = sqlite3.connect('project.db')
+
+# SQL Query to find the top 10 snowiest days based on precipitation
+query = """
+WITH SnowDays AS (
+    SELECT 
+        date AS snow_date,
+        avg_precipitation AS total_precipitation
+    FROM daily_weather
+    WHERE daily_weather_type = 'snow'
+),
+DailyRideCounts AS (
+    SELECT 
+        DATE(pickup_datetime) AS ride_date,
+        COUNT(*) AS total_rides
+    FROM (
+        SELECT pickup_datetime FROM taxi_trips
+        UNION ALL
+        SELECT pickup_datetime FROM uber_trips
+    )
+    GROUP BY DATE(pickup_datetime)
+)
+SELECT 
+    s.snow_date AS date,
+    s.total_precipitation,
+    COALESCE(d.total_rides, 0) AS total_rides
+FROM SnowDays s
+LEFT JOIN DailyRideCounts d
+ON s.snow_date = d.ride_date
+ORDER BY s.total_precipitation DESC
+LIMIT 10;
+"""
+
+# Execute the query and fetch the results into tuples
+cursor = conn.cursor()
+cursor.execute(query)
+result_tuples = cursor.fetchall()
+
+# Close the connection
+conn.close()
+
+# Display the tuples
+for row in result_tuples:
+    print(row)
+
+### Q6
+import sqlite3
+
+# Establish connection to the SQLite database
+conn = sqlite3.connect('project.db')
+
+# SQL Query for the 9-day period centered around Tropical Storm Ophelia
+query = """
+WITH DailyWeatherData AS (
+    SELECT 
+        date AS day,
+        avg_precipitation AS precipitation,
+        avg_windspeed AS windspeed
+    FROM daily_weather
+    WHERE date BETWEEN '2023-09-25' AND '2023-10-03'
+),
+DailyRideCounts AS (
+    SELECT 
+        DATE(pickup_datetime) AS day,
+        COUNT(*) AS total_rides
+    FROM (
+        SELECT pickup_datetime FROM taxi_trips
+        UNION ALL
+        SELECT pickup_datetime FROM uber_trips
+    )
+    WHERE DATE(pickup_datetime) BETWEEN '2023-09-25' AND '2023-10-03'
+    GROUP BY DATE(pickup_datetime)
+),
+CombinedData AS (
+    SELECT 
+        d.day AS date,
+        COALESCE(r.total_rides, 0) AS total_rides,
+        COALESCE(d.precipitation, 0.0) AS precipitation,
+        COALESCE(d.windspeed, 0.0) AS windspeed
+    FROM DailyWeatherData d
+    LEFT JOIN DailyRideCounts r
+    ON d.day = r.day
+)
+SELECT 
+    date,
+    total_rides,
+    precipitation,
+    windspeed
+FROM CombinedData
+ORDER BY date ASC;
+"""
+
+# Execute the query and fetch the results as tuples
+cursor = conn.cursor()
+cursor.execute(query)
+result_tuples = cursor.fetchall()
+
+# Close the database connection
+conn.close()
+
+# Output the list of tuples
+for row in result_tuples:
+    print(row)
