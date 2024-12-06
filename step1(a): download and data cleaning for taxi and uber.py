@@ -201,100 +201,89 @@ def get_and_clean_uber_month(url):
         # 检查是否已下载
         filename = url.split('/')[-1]
         if os.path.exists(f"data/{filename}"):
-            uber_month_df = pd.read_parquet(f"data/{filename}")
+            uber_df = pd.read_parquet(f"data/{filename}")
         else:
             # 下载数据
-            uber_month_df = pd.read_parquet(url)
+            uber_df = pd.read_parquet(url)
             # 保存到本地
             os.makedirs("data", exist_ok=True)
-            uber_month_df.to_parquet(f"data/{filename}")
+            uber_df.to_parquet(f"data/{filename}")
         
         # 计算样本量
-        population_size2 = len(uber_month_df)
+        population_size2 = len(uber_df)
         sample_size2 = calculate_sample_size(population_size2)
-        
-        # 随机抽样
-        uber_month_df = uber_month_df.sample(n=sample_size2, random_state=42)
+        uber_df = uber_df.sample(n=sample_size2, random_state=42)
         
         # 定义必需列和可选列
         required_columns = [
-            'hvfhs_license_num', 'dispatching_base_num', 'request_datetime',
-            'pickup_datetime', 'dropoff_datetime', 'PULocationID', 'DOLocationID',
-            'trip_miles', 'trip_time', 'base_passenger_fare', 'driver_pay', 'tips'
+            'hvfhs_license_num', 'pickup_datetime', 'dropoff_datetime', 'PULocationID', 'DOLocationID'
         ]
         
         optional_columns = [
-            'airport_fee'
+            'trip_miles', 'base_passenger_fare', 'tolls', 'sales_tax', 'congestion_surcharge',
+            'airport_fee', 'driver_pay', 'bcf'
         ]
         
         # 检查必需列是否存在
-        if not all(col in uber_month_df.columns for col in required_columns):
-            raise ValueError(f"Missing required columns: {[col for col in required_columns if col not in uber_month_df.columns]}")
+        if not all(col in uber_df.columns for col in required_columns):
+            raise ValueError(f"Missing required columns: {[col for col in required_columns if col not in uber_df.columns]}")
         
         # 获取可用的可选列
-        available_columns = required_columns + [col for col in optional_columns if col in uber_month_df.columns]
-        
-        # 只保留存在的列
-        uber_month_df = uber_month_df[available_columns]
+        available_columns = required_columns + [col for col in optional_columns if col in uber_df.columns]
+        uber_df = uber_df[available_columns]
         
         # 过滤Uber数据，只选择hvfhs_license_num为'HV0003'的数据
-        uber_month_df = uber_month_df[uber_month_df['hvfhs_license_num'] == 'HV0003']
+        uber_df = uber_df[uber_df['hvfhs_license_num'] == 'HV0003']
         
-        # 加载taxi zones数据
+        # 加载 taxi zones 数据
         loaded_taxi_zones = load_taxi_zones()
         
         # 转换位置ID到坐标
-        uber_month_df['pickup_coords'] = uber_month_df['PULocationID'].apply(
+        uber_df['pickup_coords'] = uber_df['PULocationID'].apply(
             lambda loc_id: lookup_coords_for_taxi_zone_id(loc_id, loaded_taxi_zones)
         )
-        uber_month_df['dropoff_coords'] = uber_month_df['DOLocationID'].apply(
+        uber_df['dropoff_coords'] = uber_df['DOLocationID'].apply(
             lambda loc_id: lookup_coords_for_taxi_zone_id(loc_id, loaded_taxi_zones)
         )
+        uber_df = uber_df.dropna(subset=['pickup_coords', 'dropoff_coords'])
         
-        # 数据清洗
-        # 1. 删除坐标为None的行
-        uber_month_df = uber_month_df.dropna(subset=['pickup_coords', 'dropoff_coords'])
-        
-        # 2. 验证坐标是否在纽约范围内
+        # 验证坐标是否在纽约范围内
         def is_in_nyc(coords):
             if not coords:
                 return False
             lat, lon = coords
             return (NEW_YORK_BOX_COORDS[0][0] <= lat <= NEW_YORK_BOX_COORDS[1][0] and
-                   NEW_YORK_BOX_COORDS[0][1] <= lon <= NEW_YORK_BOX_COORDS[1][1])
+                    NEW_YORK_BOX_COORDS[0][1] <= lon <= NEW_YORK_BOX_COORDS[1][1])
         
-        uber_month_df = uber_month_df[uber_month_df['pickup_coords'].apply(is_in_nyc) & 
-                                    uber_month_df['dropoff_coords'].apply(is_in_nyc)]
+        uber_df = uber_df[uber_df['pickup_coords'].apply(is_in_nyc) & 
+                          uber_df['dropoff_coords'].apply(is_in_nyc)]
         
-        # 3. 数据类型转换和时间验证
-        uber_month_df['request_datetime'] = pd.to_datetime(uber_month_df['request_datetime'])
-        uber_month_df['pickup_datetime'] = pd.to_datetime(uber_month_df['pickup_datetime'])
-        uber_month_df['dropoff_datetime'] = pd.to_datetime(uber_month_df['dropoff_datetime'])
+        # 数据类型转换和时间验证
+        uber_df['pickup_datetime'] = pd.to_datetime(uber_df['pickup_datetime'])
+        uber_df['dropoff_datetime'] = pd.to_datetime(uber_df['dropoff_datetime'])
+        uber_df["weekday_num"] = uber_df["dropoff_datetime"].dt.weekday + 1
         
-        # 4. 时间顺序验证
-        uber_month_df = uber_month_df[
-            (uber_month_df['pickup_datetime'] >= uber_month_df['request_datetime']) &
-            (uber_month_df['dropoff_datetime'] > uber_month_df['pickup_datetime'])
+        # 计算总金额
+        uber_df['total_amount'] = uber_df.apply(
+            lambda row: (
+                row['base_passenger_fare'] + row['tolls'] + row['sales_tax'] + 
+                row['airport_fee'] + row['congestion_surcharge'] + 
+                row['driver_pay'] + row['bcf']
+            ), 
+            axis=1
+        )
+        
+        # 删除不需要的列
+        uber_df = uber_df.drop(columns=['PULocationID', 'DOLocationID'])
+        
+        # 填充空白值为 0
+        columns_to_fill = [
+            'trip_miles', 'base_passenger_fare', 'tolls', 'sales_tax', 'congestion_surcharge',
+            'airport_fee', 'driver_pay', 'bcf'
         ]
+        uber_df[columns_to_fill] = uber_df[columns_to_fill].fillna(0)
         
-        # 5. 基本数据验证
-        uber_month_df = uber_month_df[uber_month_df['trip_miles'] > 0]
-        uber_month_df = uber_month_df[uber_month_df['base_passenger_fare'] > 0]
-        uber_month_df = uber_month_df[uber_month_df['driver_pay'] > 0]
-        uber_month_df = uber_month_df[uber_month_df['trip_time'] > 0]
-        uber_month_df = uber_month_df[uber_month_df['tips'] >= 0]  # tips可以为0
-        
-        # 6. dispatching_base_num非空验证
-        uber_month_df = uber_month_df.dropna(subset=['dispatching_base_num'])
-        
-        # 7. LocationID范围验证
-        max_location_id = 263  # 基于taxi zones数据
-        uber_month_df = uber_month_df[
-            (uber_month_df['PULocationID'] <= max_location_id) &
-            (uber_month_df['DOLocationID'] <= max_location_id)
-        ]
-        
-        return uber_month_df
+        return uber_df
         
     except Exception as e:
         print(f"Error processing {url}: {e}")
