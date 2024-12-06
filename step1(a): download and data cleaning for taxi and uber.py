@@ -115,13 +115,13 @@ def get_and_clean_taxi_month(url):
        
        # column need to keep
        required_columns = [
-           'tpep_pickup_datetime', 'tpep_dropoff_datetime',
-           'PULocationID', 'DOLocationID', 'RatecodeID'
+           'tpep_pickup_datetime'
        ]
        optional_columns = [
            'trip_distance', 'extra', 'mta_tax', 'tip_amount', 
            'tolls_amount', 'improvement_surcharge', 'total_amount',
-           'congestion_surcharge', 'Airport_fee'
+           'congestion_surcharge', 'Airport_fee','tpep_dropoff_datetime',
+           'PULocationID', 'DOLocationID', 'RatecodeID'
        ]
        
        missing_columns = [col for col in required_columns if col not in taxi_df.columns]
@@ -222,12 +222,12 @@ def get_and_clean_uber_month(url):
         uber_df = uber_df.sample(n=sample_size2, random_state=42)
         
         required_columns = [
-            'hvfhs_license_num', 'pickup_datetime', 'dropoff_datetime', 'PULocationID', 'DOLocationID'
+            'hvfhs_license_num', 'pickup_datetime'
         ]
         
         optional_columns = [
             'trip_miles', 'base_passenger_fare', 'tolls', 'sales_tax', 'congestion_surcharge',
-            'airport_fee', 'driver_pay', 'bcf'
+            'airport_fee', 'driver_pay', 'bcf', 'tips', 'dropoff_datetime', 'PULocationID', 'DOLocationID'
         ]
         if not all(col in uber_df.columns for col in required_columns):
             raise ValueError(f"Missing required columns: {[col for col in required_columns if col not in uber_df.columns]}")
