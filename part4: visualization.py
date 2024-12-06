@@ -125,3 +125,66 @@ plt.grid(visible=True)
 
 plt.tight_layout()
 plt.show()
+
+### v4
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Simulated data structure (replace with actual data source if available)
+data = {
+    'month': pd.date_range(start='2020-01-01', end='2024-08-01', freq='MS').strftime('%Y-%m').tolist() * 2,
+    'service_type': ['Yellow Taxi'] * 56 + ['Uber'] * 56,
+    'total_amount': [50000 + (i * 1000) for i in range(56)] + [45000 + (i * 900) for i in range(56)],
+    'fares': [40000 + (i * 800) for i in range(56)] + [36000 + (i * 700) for i in range(56)],
+    'surcharges': [5000 + (i * 50) for i in range(56)] + [4500 + (i * 40) for i in range(56)],
+    'taxes': [3000 + (i * 30) for i in range(56)] + [2500 + (i * 20) for i in range(56)],
+    'tolls': [2000 + (i * 20) for i in range(56)] + [2000 + (i * 15) for i in range(56)],
+}
+
+# Create DataFrame
+df = pd.DataFrame(data)
+
+# Convert 'month' to datetime for easier plotting and analysis
+df['month'] = pd.to_datetime(df['month'])
+
+# Group by month and service type, aggregating values
+monthly_data = df.groupby(['month', 'service_type']).sum().reset_index()
+
+# Separate data for plotting
+yellow_taxi_data = monthly_data[monthly_data['service_type'] == 'Yellow Taxi']
+uber_data = monthly_data[monthly_data['service_type'] == 'Uber']
+
+# Plotting the total amounts over time for both services
+plt.figure(figsize=(12, 6))
+plt.plot(yellow_taxi_data['month'], yellow_taxi_data['total_amount'], label='Yellow Taxi - Total Amount', marker='o')
+plt.plot(uber_data['month'], uber_data['total_amount'], label='Uber - Total Amount', marker='o')
+plt.title('Monthly Total Fares: Yellow Taxi vs. Uber (2020-2024)')
+plt.xlabel('Month')
+plt.ylabel('Total Amount ($)')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# Stacked bar chart for fare breakdown (Fares, Surcharges, Taxes, Tolls)
+fare_components = ['fares', 'surcharges', 'taxes', 'tolls']
+
+# Yellow Taxi breakdown
+yellow_taxi_data.set_index('month', inplace=True)
+yellow_taxi_data[fare_components].plot(kind='bar', stacked=True, figsize=(12, 6))
+plt.title('Yellow Taxi Monthly Fare Breakdown (2020-2024)')
+plt.xlabel('Month')
+plt.ylabel('Amount ($)')
+plt.legend(title='Components')
+plt.tight_layout()
+plt.show()
+
+# Uber breakdown
+uber_data.set_index('month', inplace=True)
+uber_data[fare_components].plot(kind='bar', stacked=True, figsize=(12, 6))
+plt.title('Uber Monthly Fare Breakdown (2020-2024)')
+plt.xlabel('Month')
+plt.ylabel('Amount ($)')
+plt.legend(title='Components')
+plt.tight_layout()
+plt.show()
