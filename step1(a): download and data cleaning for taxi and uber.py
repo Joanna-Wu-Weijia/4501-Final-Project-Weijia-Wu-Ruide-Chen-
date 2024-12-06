@@ -96,7 +96,6 @@ def find_uber_parquet_urls(all_urls):
     if len(uber_links) > 0:
         print("Sample URL:", uber_links[0])
     return uber_links
-
 def get_and_clean_taxi_month(url):
     try:
         # 检查是否已下载
@@ -117,24 +116,21 @@ def get_and_clean_taxi_month(url):
         # 随机抽样
         taxi_df = taxi_df.sample(n=sample_size, random_state=42)
         
-    # 定义必需列和可选列
+        # 定义必需列和可选列
         required_columns = [
-            'tpep_pickup_datetime', 'tpep_dropoff_datetime', 'RateCodeID',
+            'tpep_pickup_datetime', 'tpep_dropoff_datetime', 'RatecodeID',
             'trip_distance', 'PULocationID', 'DOLocationID', 'extra'
             'fare_amount', 'total_amount', 'mta_tax', 'airport_fee', 
-            'Improvement_surcharge', 'tolls_amount', 'congestion_surcharge' 
+            'improvement_surcharge', 'tolls_amount', 'congestion_surcharge' 
         ]
         
         # 检查必需列是否存在
         if not all(col in taxi_df.columns for col in required_columns):
             raise ValueError(f"Missing required columns: {[col for col in required_columns if col not in taxi_df.columns]}")
         
-        # 获取可用的可选列
-        available_columns = required_columns + [col for col in optional_columns if col in taxi_df.columns]
-        
         # 只保留存在的列
         taxi_df = taxi_df[available_columns]
-    
+
         # 加载taxi zones数据
         loaded_taxi_zones = load_taxi_zones()
         
@@ -161,50 +157,39 @@ def get_and_clean_taxi_month(url):
         
         taxi_df['tpep_pickup_datetime'] = pd.to_datetime(taxi_df['tpep_pickup_datetime'])
         taxi_df['tpep_dropoff_datetime'] = pd.to_datetime(taxi_df['tpep_dropoff_datetime'])
+
+        # 引入weekday的num
+        taxi_df["weekday_num"] = taxi_df["tpep_dropoff_datetime"].dt.weekday + 1
+
+        # 确保 total_amount 数据的完整性
+        taxi_df['total_amount'] = taxi_df.apply(
+            lambda row: (
+                row['extra'] + row['fare_amount'] + row['mta_tax'] + 
+                row['airport_fee'] + row['Improvement_surcharge'] + 
+                row['tolls_amount'] + row['congestion_surcharge']
+            ) if pd.isna(row['total_amount']) and 
+                 row[['extra', 'fare_amount', 'mta_tax', 'airport_fee', 
+                      'Improvement_surcharge', 'tolls_amount', 
+                      'congestion_surcharge']].notna().all()
+            else row['total_amount'],
+            axis=1
+        )
         
-        # 基本数据验证
-        taxi_df = taxi_df[taxi_df['trip_distance'] > 0]
-        taxi_df = taxi_df[taxi_df['fare_amount'] > 0]
-        taxi_df = taxi_df[taxi_df['total_amount'] >= taxi_df['fare_amount']]
-        taxi_df = taxi_df[taxi_df['passenger_count'] > 0]
-        taxi_df = taxi_df[taxi_df['tpep_dropoff_datetime'] > taxi_df['tpep_pickup_datetime']]
-        taxi_df = taxi_df[taxi_df['payment_type'].between(1, 6)]
+        # 设置机场信息
+        taxi_df['airport'] = 'not airport'
         
-        # 只有在存在这些列的情况下才进行验证
-        if 'RateCodeID' in taxi_df.columns:
-            taxi_df = taxi_df[taxi_df['RateCodeID'].between(1, 6)]
-        
-        taxi_df = taxi_df[taxi_df['VendorID'].isin([1, 2])]
-        
+        taxi_df.loc[taxi_df['RatecodeID'] == 2, 'airport'] = 'JFK'
+        taxi_df.loc[taxi_df['RatecodeID'] == 3, 'airport'] = 'EWR'
+        taxi_df.loc[
+            (taxi_df['Airport_fee'] == 1.75) & (taxi_df['RatecodeID'] != 2),
+            'airport'
+        ] = 'LGA'
+
         return taxi_df
         
     except Exception as e:
         print(f"Error processing {url}: {e}")
         return None
-
-
-def get_and_clean_taxi_data(parquet_urls):
-    all_taxi_dataframes = []
-    
-    for parquet_url in parquet_urls:
-        taxi_df = get_and_clean_taxi_month(parquet_url)
-        if taxi_df is not None:
-            all_taxi_dataframes.append(taxi_df)
-    
-    if not all_taxi_dataframes:
-        raise ValueError("No valid taxi data found")
-        
-    taxi_data = pd.concat(all_taxi_dataframes)
-    return taxi_data
-
-def get_taxi_data():
-    all_urls = get_all_urls_from_tlc_page(TLC_URL)
-    all_parquet_urls = find_taxi_parquet_urls(all_urls)
-    taxi_data = get_and_clean_taxi_data(all_parquet_urls)
-    return taxi_data
-
-
-taxi_data = get_taxi_data()
 
 def get_and_clean_uber_month(url):
     try:
