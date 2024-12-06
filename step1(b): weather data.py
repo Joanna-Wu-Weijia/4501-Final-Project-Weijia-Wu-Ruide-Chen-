@@ -10,7 +10,7 @@ def get_all_weather_csvs(directory=None):
 
 def clean_month_weather_data_hourly(csv_file):
     weather_data = pd.read_csv(csv_file)
-   # 使用给定的列名选择和重命名列
+   # Select specific columns and rename them
     weather_data = weather_data[['DATE', 'HourlyPresentWeatherType', 'HourlyDryBulbTemperature', 'HourlyPrecipitation','HourlyWindSpeed']]
     weather_data = weather_data.rename(columns={
         'DATE': 'date',
@@ -20,12 +20,12 @@ def clean_month_weather_data_hourly(csv_file):
         'HourlyWindSpeed': 'hourly windspeed'
     })
    
-   # 转换数据类型
+   # Convert the data types
     weather_data['hourly temperature'] = pd.to_numeric(weather_data['hourly temperature'], errors='coerce')
     weather_data['hourly precipitation'] = pd.to_numeric(weather_data['hourly precipitation'], errors='coerce')
     weather_data['hourly windspeed'] = pd.to_numeric(weather_data['hourly windspeed'], errors='coerce')
 
-   # 天气类型映射
+   # Define a mapping for weather type
     weather_mapping = {
        '-RA:02 |RA |RA': 'rain',
        '-RA:02 BR:1 |RA |RA': 'rain/mist',
@@ -55,10 +55,11 @@ def clean_month_weather_data_hourly(csv_file):
        '-SN:03 FG:2 |FG SN |': 'snow/fog',
        'SN:03 FG:2 |FG SN |': 'snow/fog'
    }
-   # 应用天气类型映射
+   # Map the raw weather type strings to human-readable labels using the defined mapping
     weather_data['hourly weather type'] = weather_data['hourly weather type'].map(weather_mapping)
    
-   # 处理precipitation为0和缺失值的情况
+    # Handle precipitation and missing weather data:
+    # Set 'sunny' for rows with zero precipitation
     weather_data.loc[weather_data['hourly precipitation'] == 0, 'hourly weather type'] = 'sunny'
     weather_data.loc[
        (weather_data['hourly precipitation'].isna()) & 
@@ -66,12 +67,12 @@ def clean_month_weather_data_hourly(csv_file):
        'hourly weather type'
     ] = 'unknown'
    
-   # 转换日期并添加新列
+   # Extract hour and weekday number from the date column
     weather_data['date'] = pd.to_datetime(weather_data['date'])
     weather_data['hour'] = weather_data['date'].dt.hour
     weather_data['weekday_num'] = weather_data['date'].dt.weekday
    
-   # 创建极端天气标志
+    # Define a list of conditions representing severe weather
     severe_weather_conditions = [
        '-SN:03 |SN |', '-SN:03 BR:1 |SN |', '+RA:02 |RA |RA', '|SN |',
        '+SN:03 |SN s |', '+SN:03 FZ:8 FG:2 |FG SN |', '-SN:03 FZ:8 FG:2 |FG SN |',
@@ -81,11 +82,11 @@ def clean_month_weather_data_hourly(csv_file):
     
     weather_data['severe weather'] = 0  # 默认为0
     
-    # 设置极端天气条件为1
+    # Mark rows with severe weather conditions as 1 (severe)
     weather_data.loc[weather_data['hourly weather type'].isin(
    [weather_mapping[condition] for condition in severe_weather_conditions]
     ), 'severe weather'] = 1
-    # unknown天气设为空
+     # Set severe weather to None for rows with unknown weather type
     weather_data.loc[weather_data['hourly weather type'] == 'unknown', 'severe weather'
     ] = None
     
