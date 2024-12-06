@@ -92,43 +92,46 @@ percentile_95_result = pd.read_sql_query(QUERY_3, con=engine)
 write_query_to_file(QUERY_3, QUERY_3_FILENAME)
 
 ### Q4
-import sqlite3
-
 # Establish connection to the SQLite database
 conn = sqlite3.connect('project.db')
 
-# SQL Query to find the top 10 snowiest days based on precipitation
+# SQL query
 query = """
-WITH SnowDays AS (
-    SELECT 
-        date AS snow_date,
-        avg_precipitation AS total_precipitation
-    FROM daily_weather
-    WHERE daily_weather_type = 'snow'
-),
-DailyRideCounts AS (
+WITH DailyRideStats AS (
     SELECT 
         DATE(pickup_datetime) AS ride_date,
-        COUNT(*) AS total_rides
+        COUNT(*) AS total_rides,
+        AVG(trip_distance) AS avg_distance
     FROM (
-        SELECT pickup_datetime FROM taxi_trips
+        SELECT pickup_datetime, trip_distance FROM taxi_trips
         UNION ALL
-        SELECT pickup_datetime FROM uber_trips
+        SELECT pickup_datetime, trip_miles AS trip_distance FROM uber_trips
     )
+    WHERE strftime('%Y', pickup_datetime) = '2023'
     GROUP BY DATE(pickup_datetime)
+),
+WeatherStats AS (
+    SELECT 
+        date AS weather_date,
+        avg_precipitation,
+        avg_windspeed
+    FROM daily_weather
+    WHERE strftime('%Y', date) = '2023'
 )
 SELECT 
-    s.snow_date AS date,
-    s.total_precipitation,
-    COALESCE(d.total_rides, 0) AS total_rides
-FROM SnowDays s
-LEFT JOIN DailyRideCounts d
-ON s.snow_date = d.ride_date
-ORDER BY s.total_precipitation DESC
+    r.ride_date AS date,
+    r.total_rides,
+    r.avg_distance,
+    w.avg_precipitation,
+    w.avg_windspeed
+FROM DailyRideStats r
+LEFT JOIN WeatherStats w
+ON r.ride_date = w.weather_date
+ORDER BY r.total_rides DESC
 LIMIT 10;
 """
 
-# Execute the query and fetch the results into tuples
+# Execute the query and fetch results
 cursor = conn.cursor()
 cursor.execute(query)
 result_tuples = cursor.fetchall()
@@ -136,7 +139,7 @@ result_tuples = cursor.fetchall()
 # Close the connection
 conn.close()
 
-# Display the tuples
+# Output the list of tuples
 for row in result_tuples:
     print(row)
 
