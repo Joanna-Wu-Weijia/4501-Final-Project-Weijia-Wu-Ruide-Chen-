@@ -174,6 +174,8 @@ def get_and_clean_taxi_month(url):
            'improvement_surcharge', 'total_amount', 'congestion_surcharge', 'Airport_fee'
             ]
        taxi_df[columns_to_fill] = taxi_df[columns_to_fill].fillna(0)
+       taxi_data['pickup_coords'] = taxi_data['pickup_coords'].apply(lambda x: f"{x[0]},{x[1]}")
+       taxi_data['dropoff_coords'] = taxi_data['dropoff_coords'].apply(lambda x: f"{x[0]},{x[1]}")
        
        return taxi_df
        
@@ -304,6 +306,8 @@ def get_and_clean_uber_month(url):
             'airport_fee', 'driver_pay', 'bcf'
         ]
         uber_df[columns_to_fill] = uber_df[columns_to_fill].fillna(0)
+        uber_data['pickup_coords'] = uber_data['pickup_coords'].apply(lambda x: f"{x[0]},{x[1]}")
+        uber_data['dropoff_coords'] = uber_data['dropoff_coords'].apply(lambda x: f"{x[0]},{x[1]}")
         
         return uber_df
         
