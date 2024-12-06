@@ -31,8 +31,8 @@ def plot_hourly_taxi_distribution(dataframe):
 def get_hourly_taxi_data():
     return pd.read_csv('hourly_taxi_popularity.csv')
 
-taxi_data = get_hourly_taxi_data()
-plot_hourly_taxi_distribution(taxi_data)
+taxi_data_print = get_hourly_taxi_data()
+plot_hourly_taxi_distribution_print(taxi_data)
 
 ### v2:
 uber_data.rename(columns={'trip_miles': 'trip_distance'}, inplace=True)
