@@ -189,6 +189,60 @@ plt.legend(title='Components')
 plt.tight_layout()
 plt.show()
 
+###v5:
+taxi_data['hour'] = taxi_data['pickup_datetime'].dt.round('H')
+uber_data['hour'] = uber_data['pickup_datetime'].dt.round('H')
+hourly_weather_data['hour'] = hourly_weather_data['date'].dt.round('H')
+
+taxi_merged = pd.merge(taxi_data, hourly_weather_data[['hour', 'hourly precipitation']], on='hour', how='left')
+uber_merged = pd.merge(uber_data, hourly_weather_data[['hour', 'hourly precipitation']], on='hour', how='left')
+
+# removing any negative or zero distances
+taxi_merged = taxi_merged[(taxi_merged['trip_distance'] > 0) & (taxi_merged['tip_amount'] > 0)]
+uber_merged = uber_merged[(uber_merged['trip_distance'] > 0) & (uber_merged['tips'] > 0)]
+
+# removing extremely large
+taxi_merged = taxi_merged[
+    (taxi_merged['trip_distance'] < np.percentile(taxi_merged['trip_distance'], 99)) &
+    (taxi_merged['tip_amount'] < np.percentile(taxi_merged['tip_amount'], 99))
+]
+
+uber_merged = uber_merged[
+    (uber_merged['trip_distance'] < np.percentile(uber_merged['trip_distance'], 99)) &
+    (uber_merged['tips'] < np.percentile(uber_merged['tips'], 99))
+]
+
+
+# Plotting
+fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+
+# Taxi tips vs. distance
+axes[0, 0].scatter(taxi_merged['trip_distance'], taxi_merged['tip_amount'], alpha=0.5, color='blue')
+axes[0, 0].set_xlabel('Distance (miles)')
+axes[0, 0].set_ylabel('Tip Amount ($)')
+axes[0, 0].set_title('Yellow Taxi Tips vs. Distance')
+
+# Uber tips vs. distance
+axes[0, 1].scatter(uber_merged['trip_distance'], uber_merged['tips'], alpha=0.5, color='red')
+axes[0, 1].set_xlabel('Distance (miles)')
+axes[0, 1].set_ylabel('Tip Amount ($)')
+axes[0, 1].set_title('Uber Tips vs. Distance')
+
+# Taxi tips vs. precipitation
+axes[1, 0].scatter(taxi_merged['hourly precipitation'], taxi_merged['tip_amount'], alpha=0.5, color='green')
+axes[1, 0].set_xlabel('Hourly Precipitation (inches)')
+axes[1, 0].set_ylabel('Tip Amount ($)')
+axes[1, 0].set_title('Yellow Taxi Tips vs. Precipitation')
+
+# Uber tips vs. precipitation
+axes[1, 1].scatter(uber_merged['hourly precipitation'], uber_merged['tips'], alpha=0.5, color='purple')
+axes[1, 1].set_xlabel('Hourly Precipitation (inches)')
+axes[1, 1].set_ylabel('Tip Amount ($)')
+axes[1, 1].set_title('Uber Tips vs. Precipitation')
+
+plt.tight_layout()
+plt.show()
+
 ### v6:
 m = folium.Map(location=[40.7128, -74.0060], zoom_start=11)
 
