@@ -261,6 +261,41 @@ def get_and_clean_uber_month(url):
             ), 
             axis=1
         )
+                #get airport info
+        def haversine(lat1, lon1, lat2, lon2):
+            R = 6371  
+            lat1, lon1, lat2, lon2 = map(radians,[lat1, lon1, lat2, lon2])
+            dlat = lat2 - lat1
+            dlon = lon2 - lon1
+            a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
+            c = 2 * atan2(sqrt(a), sqrt(1 - a))
+            distance = R * c  
+            return distance
+
+
+        airports = {
+            "JFK": {"lat": 40.6413, "lon": -73.7781, "radius": 5},
+            "LGA": {"lat": 40.7769, "lon": -73.8740, "radius": 5},
+            "EWR": {"lat": 40.6895, "lon": -74.1745, "radius": 5}
+        }
+        
+        def assign_airport(row):
+            pickup_coords = row['pickup_coords']
+            dropoff_coords = row['dropoff_coords']
+            pickup_lat, pickup_lon = pickup_coords
+            dropoff_lat, dropoff_lon = dropoff_coords
+            
+            for airport, info in airports.items():
+                pickup_distance = haversine(pickup_lat, pickup_lon, info['lat'], info['lon'])
+                if pickup_distance <= info['radius']:
+                    return airport
+                    
+            for airport, info in airports.items():
+                dropoff_distance = haversine(dropoff_lat, dropoff_lon, info['lat'], info['lon'])
+                if dropoff_distance <= info['radius']:
+                    return airport
+            
+            return "not airport"
         
         uber_df = uber_df.drop(columns=['PULocationID', 'DOLocationID'])
         
