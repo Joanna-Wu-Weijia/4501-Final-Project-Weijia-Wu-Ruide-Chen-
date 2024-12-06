@@ -4,7 +4,6 @@ def write_query_to_file(query, outfile):
     df.to_csv(outfile, index=False)
 
 ### Q1
-QUERY_1_FILENAME = "hourly_taxi_popularity.csv"
 QUERY_1 = """
 WITH hourly_counts AS (
     SELECT 
@@ -23,19 +22,12 @@ SELECT
 FROM hourly_counts
 ORDER BY X;
 """
+conn = sqlite3.connect('project.db')
+hourly_stats = pd.read_sql_query(QUERY_1, conn)
+conn.close()
+hourly_stats.to_csv("hourly_taxi_popularity.csv", index=False)
 
-# execute query either via sqlalchemy
-#with engine.connect() as con:
-    #results = con.execute(db.text(QUERY_1)).fetchall()
-#results
 
-# or via pandas
-pd.read_sql(QUERY_1, con=engine)
-
-write_query_to_file(QUERY_1, QUERY_1_FILENAME)
-
-### Q2
-QUERY_2_FILENAME = "daily_uber_popularity.csv"
 QUERY_2 = """
 WITH daily_counts AS (
     SELECT 
@@ -54,11 +46,13 @@ SELECT
 FROM daily_counts
 ORDER BY Y DESC;
 """
-pd.read_sql(QUERY_2, con=engine)
-write_query_to_file(QUERY_2, QUERY_2_FILENAME)
+
+conn = sqlite3.connect('project.db')
+daily_stats = pd.read_sql_query(QUERY_2, conn)
+conn.close()
+daily_stats.to_csv("daily_uber_popularity.csv", index=False)
 
 ### Q3
-QUERY_3_FILENAME = "ride_distance_percentile.csv"
 QUERY_3 = """
 WITH combined_trips AS (
     SELECT trip_distance as distance
@@ -87,18 +81,13 @@ ORDER BY distance ASC
 LIMIT 1;
 """
 
-# Execute the query
-percentile_95_result = pd.read_sql_query(QUERY_3, con=engine)
-write_query_to_file(QUERY_3, QUERY_3_FILENAME)
+conn = sqlite3.connect('project.db')
+daily_stats = pd.read_sql_query(QUERY_3, conn)
+conn.close()
+daily_stats.to_csv("ride_distance_percentile.csv", index=False)
 
 ### Q4
-import sqlite3
-
-# Establish connection to the SQLite database
-conn = sqlite3.connect('project.db')
-
-# SQL Query to find the top 10 snowiest days based on precipitation
-query = """
+QUERY_4 = """
 WITH SnowDays AS (
     SELECT 
         date AS snow_date,
@@ -128,22 +117,17 @@ ORDER BY s.total_precipitation DESC
 LIMIT 10;
 """
 
-# Execute the query and fetch the results into tuples
-cursor = conn.cursor()
-cursor.execute(query)
-result_tuples = cursor.fetchall()
-
-# Close the connection
+conn = sqlite3.connect('project.db')
+df = pd.read_sql_query(QUERY_4, conn)
+df.to_csv(("buiest_trip.csv", index=False)
 conn.close()
 
-# Display the tuples
-for row in result_tuples:
-    print(row)
+
+
 
 ### Q5
-conn = sqlite3.connect('project.db')
-
-query = """
+QUERY_5_FILENAME = "snowiest_days_rides.csv"
+QUERY_5 = """
 WITH SnowDays AS (
     SELECT 
         date AS snow_date,
@@ -173,26 +157,13 @@ ORDER BY s.total_precipitation DESC
 LIMIT 10;
 """
 
-# Execute the query and fetch the results into tuples
-cursor = conn.cursor()
-cursor.execute(query)
-result_tuples = cursor.fetchall()
-
-# Close the connection
+conn = sqlite3.connect('project.db')
+df = pd.read_sql_query(QUERY_5, conn)
+df.to_csv(QUERY_5_FILENAME, index=False)
 conn.close()
 
-# Display the tuples
-for row in result_tuples:
-    print(row)
-
 ### Q6
-import sqlite3
-
-# Establish connection to the SQLite database
-conn = sqlite3.connect('project.db')
-
-# SQL Query for the 9-day period centered around Tropical Storm Ophelia
-query = """
+QUERY_6 = """
 WITH DailyWeatherData AS (
     SELECT 
         date AS day,
@@ -232,14 +203,7 @@ FROM CombinedData
 ORDER BY date ASC;
 """
 
-# Execute the query and fetch the results as tuples
-cursor = conn.cursor()
-cursor.execute(query)
-result_tuples = cursor.fetchall()
-
-# Close the database connection
+conn = sqlite3.connect('project.db')
+df = pd.read_sql_query(QUERY_6, conn)
+df.to_csv("Tropical Storm Ophelia.csv", index=False)
 conn.close()
-
-# Output the list of tuples
-for row in result_tuples:
-    print(row)
