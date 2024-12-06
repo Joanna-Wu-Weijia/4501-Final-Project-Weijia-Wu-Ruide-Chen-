@@ -188,3 +188,19 @@ plt.ylabel('Amount ($)')
 plt.legend(title='Components')
 plt.tight_layout()
 plt.show()
+
+### v6:
+m = folium.Map(location=[40.7128, -74.0060], zoom_start=11)
+
+# Note: Using only pickup coordinates since pickup data is conclusive while dropoff data is not
+# taxi data
+taxi_coords = [[float(coord.split(',')[0]), float(coord.split(',')[1])] 
+               for coord in taxi_data['pickup_coords']]
+HeatMap(taxi_coords, radius=15, gradient={0.4: 'yellow', 0.65: 'orange', 1: 'red'}).add_to(m)
+
+# uber data
+uber_coords = [[float(coord.split(',')[0]), float(coord.split(',')[1])] 
+               for coord in uber_data['pickup_coords']]
+HeatMap(uber_coords, radius=15, gradient={0.4: 'blue', 0.65: 'purple', 1: 'red'}).add_to(m)
+
+m.save('nyc_rides_heatmap_2020.html')
