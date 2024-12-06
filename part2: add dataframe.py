@@ -1,3 +1,13 @@
+taxi_data['pickup_coords'] = taxi_data['pickup_coords'].apply(lambda x: f"{x[0]},{x[1]}")
+taxi_data['dropoff_coords'] = taxi_data['dropoff_coords'].apply(lambda x: f"{x[0]},{x[1]}")
+
+uber_data['pickup_coords'] = uber_data['pickup_coords'].apply(lambda x: f"{x[0]},{x[1]}")
+uber_data['dropoff_coords'] = uber_data['dropoff_coords'].apply(lambda x: f"{x[0]},{x[1]}")
+# def str_to_coords(coord_str):
+    #lat, lon = map(float, coord_str.split(','))
+    #return (lat, lon)
+
+
 HOURLY_WEATHER_SCHEMA = """
 CREATE TABLE IF NOT EXISTS hourly_weather (
    date TIMESTAMP NOT NULL,
