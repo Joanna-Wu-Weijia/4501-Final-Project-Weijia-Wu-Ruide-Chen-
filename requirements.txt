@@ -1,0 +1,15 @@
+# For web scraping
+beautifulsoup4==4.12.3
+
+# For map visualizations
+folium==0.18.0
+
+# For geospatial data manipulation
+geopandas==1.0.1
+haversine==2.9.0
+
+# For data manipulation and visualization
+matplotlib==3.8.0
+numpy==1.24.4
+pandas==2.1.1
+seaborn==0.12.2
