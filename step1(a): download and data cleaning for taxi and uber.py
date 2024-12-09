@@ -2,12 +2,22 @@ import os
 import re
 import requests
 import bs4
-import matplotlib.pyplot as plt
+from bs4 import BeautifulSoup
+
+import math
+from math import radians, sin, cos, sqrt, atan2
+
+import sqlite3
+import sqlalchemy as db
+
+import numpy as np
 import pandas as pd
 import geopandas as gpd
-import math
-import sqlalchemy as db
-from bs4 import BeautifulSoup
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+import folium
+from folium.plugins import HeatMap
 
 TLC_URL = "https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page"
 
@@ -37,69 +47,216 @@ except Exception as e:
         raise
 
 def load_taxi_zones():
+    """
+    Load and transform NYC taxi zone shapefile data to WGS84 coordinates.
+
+    Returns:
+        gpd.GeoDataFrame: GeoDataFrame containing taxi zone data with columns:
+            - LocationID: unique identifier for each zone
+            - zone: name of the taxi zone
+            - borough: borough the zone is in
+            - geometry: geometric boundaries of the zone
+
+    Raises:
+        ValueError: If the taxi zones shapefile cannot be loaded
+    """
     try:
-        # 读取shapefile并立即转换到WGS84坐标系统
+        # use WGS84 cord
         taxi_zones = gpd.read_file('taxi_zones.shp').to_crs(CRS)
         return taxi_zones[['LocationID', 'zone', 'borough', 'geometry']]
     except Exception as e:
         print(f"Error loading shapefile: {e}")
         raise ValueError("Could not load taxi zones shapefile")
 
-def lookup_coords_for_taxi_zone_id(zone_loc_id, loaded_taxi_zones):
+def lookup_coords_for_taxi_zone_id(
+    zone_loc_id: int, 
+    loaded_taxi_zones: gpd.GeoDataFrame
+):
+    r"""
+    Look up centroid coordinates for a given taxi zone ID.
+
+    Args:
+        zone_loc_id: LocationID of the taxi zone to find coordinates for
+        loaded_taxi_zones: GeoDataFrame containing taxi zone data
+
+    Returns:
+        tuple: (latitude, longitude) coordinates of zone centroid if found
+        None: if zone lookup fails
+
+    Raises:
+        ValueError: If no taxi zone found for the given LocationID
+    """
     try:
-        # 检查zone_loc_id
         zone = loaded_taxi_zones[loaded_taxi_zones['LocationID'] == zone_loc_id]
         if zone.empty:
             raise ValueError(f"No taxi zone found for LocationID: {zone_loc_id}")
-        # 这里的geometry已经是WGS84格式，直接获取中心点
+        
         centroid = zone.geometry.centroid.iloc[0]
-        return (centroid.y, centroid.x)  # 返回(latitude, longitude)
+        return (centroid.y, centroid.x)
+        
     except ValueError as e:
         print(f"Value error: {e}")
         return None
+        
     except Exception as e:
         print(f"Unexpected error looking up coordinates: {e}")
         return None
 
+def calculate_sample_size(
+   population: int,
+   confidence_level: float = 0.95,
+   margin_of_error: float = 0.05,
+   p: float = 0.5
+) -> int:
+   r"""
+   Calculate required sample size using Cochran's formula.
 
-# Calculate sample size using Cochran's formula
-def calculate_sample_size(population, confidence_level=0.95, margin_of_error=0.05, p=0.5):
-    z = {0.90: 1.645, 0.95: 1.96, 0.99: 2.576}[confidence_level]
-    e = margin_of_error
-    numerator = (z**2) * p * (1 - p)
-    denominator = e**2
-    sample_size = numerator / denominator
-    if population:
-        sample_size = (sample_size * population) / (sample_size + population - 1)
-    return math.ceil(sample_size)
+   Args:
+       population: Total size of the population to sample from
+       confidence_level: Desired confidence level (default 0.95)
+       margin_of_error: Acceptable margin of error (default 0.05)
+       p: Population proportion (default 0.5)
 
+   Returns:
+       int: Required sample size, rounded up to nearest integer
 
-def get_all_urls_from_tlc_page(TLC_URL):
-    response = requests.get(TLC_URL)
-    soup = BeautifulSoup(response.content, 'html.parser')
-    links = soup.find_all('a', href=True)
-    urls = [link['href'] for link in links]
-    return urls
+   Notes:
+       Uses Cochran's formula for calculating sample size:
+       n = (z^2 * p * (1-p)) / e^2
+       where:
+       z = z-score for confidence level
+       e = margin of error
+       p = population proportion
+   """
+   # Z-score lookup for common confidence levels
+   z = {0.90: 1.645, 0.95: 1.96, 0.99: 2.576}[confidence_level]
+   e = margin_of_error
 
-def find_taxi_parquet_urls(all_urls):
-    yellow_taxi_pattern = re.compile(r'.*yellow_trip[-]?data_202[0-4]-(0[1-9]|1[0-2])\.parquet$', re.IGNORECASE)
-    yellow_taxi_links = [url.strip() for url in all_urls if yellow_taxi_pattern.match(url.strip())]
-    print(f"Found {len(yellow_taxi_links)} yellow taxi parquet files")  #should be 57
-    if len(yellow_taxi_links) > 0:
-        print("Sample URL:", yellow_taxi_links[0])
-    return yellow_taxi_links
+   # Calculate base sample size
+   numerator = (z**2) * p * (1 - p)
+   denominator = e**2
+   sample_size = numerator / denominator
 
-def find_uber_parquet_urls(all_urls):
-    uber_pattern = re.compile(r'.*fhvhv_trip[-]?data_202[0-4]-(0[1-9]|1[0-2])\.parquet$', re.IGNORECASE)
-    uber_links = [url.strip() for url in all_urls if uber_pattern.match(url.strip())]
-    print(f"Found {len(uber_links)} fhvhv parquet files")  #should be 57
-    if len(uber_links) > 0:
-        print("Sample URL:", uber_links[0])
-    return uber_links
+   # Adjust for finite population if provided
+   if population:
+       sample_size = (sample_size * population) / (sample_size + population - 1)
 
+   return math.ceil(sample_size)
 
-def get_and_clean_taxi_month(url):
+    def get_all_urls_from_tlc_page(tlc_url: str) -> list[str]:
+   r"""
+   Extract all URLs from the TLC (Taxi & Limousine Commission) webpage.
+
+   Args:
+       tlc_url: URL of the TLC webpage to scrape
+
+   Returns:
+       list[str]: List of all URLs found on the page
+
+   Raises:
+       RequestException: If webpage cannot be accessed
+       ParserError: If HTML parsing fails
+   """
+   response = requests.get(tlc_url)
+   soup = BeautifulSoup(response.content, 'html.parser')
+   
+   # Find all links and extract URLs
+   links = soup.find_all('a', href=True)
+   urls = [link['href'] for link in links]
+   
+   return urls
+
+def find_taxi_parquet_urls(all_urls: list[str]) -> list[str]:
+   r"""
+   Find URLs of yellow taxi parquet files from a list of URLs.
+   
+   Matches parquet files for yellow taxis from 2020-2024 with valid month numbers.
+
+   Args:
+       all_urls: List of URLs to search through
+
+   Returns:
+       list[str]: List of matched yellow taxi parquet file URLs
+
+   Note:
+       Expected to find 57 parquet files for the period 2020-2024
+   """
+   # Define regex pattern for yellow taxi parquet files (2020-2024)
+   yellow_taxi_pattern = re.compile(
+       r'.*yellow_trip[-]?data_202[0-4]-(0[1-9]|1[0-2])\.parquet$',
+       re.IGNORECASE
+   )
+   
+   # Filter URLs matching the pattern
+   yellow_taxi_links = [
+       url.strip() for url in all_urls 
+       if yellow_taxi_pattern.match(url.strip())
+   ]
+   
+   # Log results
+   print(f"Found {len(yellow_taxi_links)} yellow taxi parquet files")  # should be 57
+   if yellow_taxi_links:
+       print("Sample URL:", yellow_taxi_links[0])
+       
+   return yellow_taxi_links
+
+    def find_uber_parquet_urls(all_urls: list[str]) -> list[str]:
+   r"""
+   Find URLs of Uber (FHVHV) parquet files from a list of URLs.
+   
+   Matches parquet files for Uber trips from 2020-2024 with valid month numbers.
+
+   Args:
+       all_urls: List of URLs to search through
+
+   Returns:
+       list[str]: List of matched Uber parquet file URLs
+
+   Note:
+       Expected to find 57 parquet files for the period 2020-2024
+   """
+   # Define regex pattern for Uber parquet files (2020-2024)
+   uber_pattern = re.compile(
+       r'.*fhvhv_trip[-]?data_202[0-4]-(0[1-9]|1[0-2])\.parquet$',
+       re.IGNORECASE
+   )
+   
+   # Filter URLs matching the pattern
+   uber_links = [
+       url.strip() for url in all_urls 
+       if uber_pattern.match(url.strip())
+   ]
+   
+   # Log results
+   print(f"Found {len(uber_links)} fhvhv parquet files")  # should be 57
+   if uber_links:
+       print("Sample URL:", uber_links[0])
+       
+   return uber_links
+
+#Get taxi data
+
+def get_and_clean_taxi_month(url: str) -> pd.DataFrame | None:
+   r"""
+   Download, sample, and clean monthly yellow taxi trip data.
+
+   Args:
+       url: URL or local path to parquet file containing taxi data
+
+   Returns:
+       pd.DataFrame: Cleaned and sampled taxi data with standardized columns
+       None: If processing fails
+
+   Notes:
+       - Downloads data if not cached locally
+       - Samples data using Cochran's formula
+       - Standardizes column names and formats
+       - Adds geolocation coordinates
+       - Identifies airport trips
+       - Fills missing values
+   """
    try:
+       # Load or download parquet file
        filename = url.split('/')[-1]
        if os.path.exists(f"data/{filename}"):
            taxi_df = pd.read_parquet(f"data/{filename}")
@@ -108,22 +265,21 @@ def get_and_clean_taxi_month(url):
            os.makedirs("data", exist_ok=True)
            taxi_df.to_parquet(f"data/{filename}")
        
-       # get sample with sample size calculate
+       # Sample data
        population_size = len(taxi_df)
        sample_size = calculate_sample_size(population_size)
        taxi_df = taxi_df.sample(n=sample_size, random_state=42)
        
-       # column need to keep
-       required_columns = [
-           'tpep_pickup_datetime'
-       ]
+       # Define required and optional columns
+       required_columns = ['tpep_pickup_datetime']
        optional_columns = [
            'trip_distance', 'extra', 'mta_tax', 'tip_amount', 
            'tolls_amount', 'improvement_surcharge', 'total_amount',
-           'congestion_surcharge', 'Airport_fee','tpep_dropoff_datetime',
-           'PULocationID', 'DOLocationID', 'RatecodeID'
+           'congestion_surcharge', 'Airport_fee', 'PULocationID', 
+           'DOLocationID', 'RatecodeID', 'tpep_dropoff_datetime'
        ]
        
+       # Validate and select columns
        missing_columns = [col for col in required_columns if col not in taxi_df.columns]
        if missing_columns:
            raise ValueError(f"Missing required columns: {missing_columns}")
@@ -131,7 +287,7 @@ def get_and_clean_taxi_month(url):
        available_columns = required_columns + [col for col in optional_columns if col in taxi_df.columns]
        taxi_df = taxi_df[available_columns]
        
-       # load taxi zone and apply cord
+       # Add coordinates from taxi zones
        loaded_taxi_zones = load_taxi_zones()
        taxi_df['pickup_coords'] = taxi_df['PULocationID'].apply(
            lambda loc_id: lookup_coords_for_taxi_zone_id(loc_id, loaded_taxi_zones)
@@ -141,12 +297,12 @@ def get_and_clean_taxi_month(url):
        )
        taxi_df = taxi_df.dropna(subset=['pickup_coords', 'dropoff_coords'])
        
-       # processing datetime data
+       # Process datetime fields
        taxi_df['tpep_pickup_datetime'] = pd.to_datetime(taxi_df['tpep_pickup_datetime'])
        taxi_df['tpep_dropoff_datetime'] = pd.to_datetime(taxi_df['tpep_dropoff_datetime'])
        taxi_df["weekday_num"] = taxi_df["tpep_dropoff_datetime"].dt.weekday + 1
        
-       # total_amount
+       # Calculate total amount if missing
        taxi_df['total_amount'] = taxi_df.apply(
            lambda row: (
                row['extra'] + row['fare_amount'] + row['mta_tax'] + 
@@ -158,7 +314,7 @@ def get_and_clean_taxi_month(url):
            axis=1
        )
        
-       # airport
+       # Identify airport trips
        taxi_df['airport'] = 'not airport'
        taxi_df.loc[taxi_df['RatecodeID'] == 2, 'airport'] = 'JFK'
        taxi_df.loc[taxi_df['RatecodeID'] == 3, 'airport'] = 'EWR'
@@ -167,13 +323,21 @@ def get_and_clean_taxi_month(url):
            'airport'
        ] = 'LGA'
 
+       # Clean and standardize
        taxi_df = taxi_df.drop(columns=['PULocationID', 'DOLocationID'])
-       taxi_df = taxi_df.rename(columns={'tpep_pickup_datetime': 'pickup_datetime', 'tpep_dropoff_datetime': 'dropoff_datetime'})
+       taxi_df = taxi_df.rename(columns={
+           'tpep_pickup_datetime': 'pickup_datetime', 
+           'tpep_dropoff_datetime': 'dropoff_datetime'
+       })
+       
+       # Fill missing values
        columns_to_fill = [
            'trip_distance', 'extra', 'mta_tax', 'tip_amount', 'tolls_amount', 
            'improvement_surcharge', 'total_amount', 'congestion_surcharge', 'Airport_fee'
-            ]
+       ]
        taxi_df[columns_to_fill] = taxi_df[columns_to_fill].fillna(0)
+       
+       # Format coordinates
        taxi_df['pickup_coords'] = taxi_df['pickup_coords'].apply(lambda x: f"{x[0]},{x[1]}")
        taxi_df['dropoff_coords'] = taxi_df['dropoff_coords'].apply(lambda x: f"{x[0]},{x[1]}")
        
@@ -182,7 +346,6 @@ def get_and_clean_taxi_month(url):
    except Exception as e:
        print(f"Error processing {url}: {e}")
        return None
-
 
 def get_and_clean_taxi_data(parquet_urls):
     all_taxi_dataframes = []
@@ -206,130 +369,145 @@ def get_taxi_data():
 
 taxi_data = get_taxi_data()
 
-def get_and_clean_uber_month(url):
-    try:
-        filename = url.split('/')[-1]
-        if os.path.exists(f"data/{filename}"):
-            uber_df = pd.read_parquet(f"data/{filename}")
-        else:
-            uber_df = pd.read_parquet(url)
-            os.makedirs("data", exist_ok=True)
-            uber_df.to_parquet(f"data/{filename}")
-        
-        # get sample
-        population_size2 = len(uber_df)
-        sample_size2 = calculate_sample_size(population_size2)
-        uber_df = uber_df.sample(n=sample_size2, random_state=42)
-        
-        required_columns = [
-            'hvfhs_license_num', 'pickup_datetime'
-        ]
-        
-        optional_columns = [
-            'trip_miles', 'base_passenger_fare', 'tolls', 'sales_tax', 'congestion_surcharge',
-            'airport_fee', 'driver_pay', 'bcf', 'tips', 'dropoff_datetime', 'PULocationID', 'DOLocationID'
-        ]
-        if not all(col in uber_df.columns for col in required_columns):
-            raise ValueError(f"Missing required columns: {[col for col in required_columns if col not in uber_df.columns]}")
-
-        # get available column and uber data only
-        available_columns = required_columns + [col for col in optional_columns if col in uber_df.columns]
-        uber_df = uber_df[available_columns]
-        uber_df = uber_df[uber_df['hvfhs_license_num'] == 'HV0003']
-        
-        # load taxi zone
-        loaded_taxi_zones = load_taxi_zones()
-        
-        # apply to cord
-        uber_df['pickup_coords'] = uber_df['PULocationID'].apply(
-            lambda loc_id: lookup_coords_for_taxi_zone_id(loc_id, loaded_taxi_zones)
-        )
-        uber_df['dropoff_coords'] = uber_df['DOLocationID'].apply(
-            lambda loc_id: lookup_coords_for_taxi_zone_id(loc_id, loaded_taxi_zones)
-        )
-        uber_df = uber_df.dropna(subset=['pickup_coords', 'dropoff_coords'])
-        
-        # datetime
-        uber_df['pickup_datetime'] = pd.to_datetime(uber_df['pickup_datetime'])
-        uber_df['dropoff_datetime'] = pd.to_datetime(uber_df['dropoff_datetime'])
-        uber_df["weekday_num"] = uber_df["dropoff_datetime"].dt.weekday + 1
-        
-        # total amount
-        uber_df['total_amount'] = uber_df.apply(
-            lambda row: (
-                row['base_passenger_fare'] + row['tolls'] + row['sales_tax'] + 
-                row['airport_fee'] + row['congestion_surcharge'] + 
-                row['driver_pay'] + row['bcf']
-            ), 
-            axis=1
-        )
-                #get airport info
-        def haversine(lat1, lon1, lat2, lon2):
-            R = 6371  
-            lat1, lon1, lat2, lon2 = map(radians,[lat1, lon1, lat2, lon2])
-            dlat = lat2 - lat1
-            dlon = lon2 - lon1
-            a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
-            c = 2 * atan2(sqrt(a), sqrt(1 - a))
-            distance = R * c  
-            return distance
 
 
-        airports = {
-            "JFK": {"lat": 40.6413, "lon": -73.7781, "radius": 5},
-            "LGA": {"lat": 40.7769, "lon": -73.8740, "radius": 5},
-            "EWR": {"lat": 40.6895, "lon": -74.1745, "radius": 5}
-        }
-        
-        def assign_airport(row):
-            pickup_coords = row['pickup_coords']
-            dropoff_coords = row['dropoff_coords']
-            pickup_lat, pickup_lon = pickup_coords
-            dropoff_lat, dropoff_lon = dropoff_coords
-            
-            for airport, info in airports.items():
-                pickup_distance = haversine(pickup_lat, pickup_lon, info['lat'], info['lon'])
-                if pickup_distance <= info['radius']:
-                    return airport
-                    
-            for airport, info in airports.items():
-                dropoff_distance = haversine(dropoff_lat, dropoff_lon, info['lat'], info['lon'])
-                if dropoff_distance <= info['radius']:
-                    return airport
-            
-            return "not airport"
-        
-        uber_df = uber_df.drop(columns=['PULocationID', 'DOLocationID'])
-        
-        columns_to_fill = [
-            'trip_miles', 'base_passenger_fare', 'tolls', 'sales_tax', 'congestion_surcharge',
-            'airport_fee', 'driver_pay', 'bcf'
-        ]
-        uber_df[columns_to_fill] = uber_df[columns_to_fill].fillna(0)
-        uber_df['pickup_coords'] = uber_df['pickup_coords'].apply(lambda x: f"{x[0]},{x[1]}")
-        uber_df['dropoff_coords'] = uber_df['dropoff_coords'].apply(lambda x: f"{x[0]},{x[1]}")
-        
-        return uber_df
-        
-    except Exception as e:
-        print(f"Error processing {url}: {e}")
-        return None
+# Get uber data
+def get_and_clean_uber_month(url: str) -> pd.DataFrame | None:
+   r"""
+   Download, sample and clean monthly Uber (FHVHV) trip data.
 
-def get_and_clean_uber_data(parquet_urls):
-    all_uber_dataframes = []
-    
-    for parquet_url in parquet_urls:
-        # maybe: first try to see if you've downloaded this exact
-        # file already and saved it before trying again
-        dataframe = get_and_clean_uber_month(parquet_url)
-        # maybe: if the file hasn't been saved, save it so you can
-        # avoid re-downloading it if you re-run the function
-        
-        all_uber_dataframes.append(dataframe)
+   Args:
+       url: URL or local path to parquet file containing Uber data
 
-    # create one gigantic dataframe with data from every month needed
-    uber_data = pd.concat(all_uber_dataframes)
-    return uber_data
+   Returns:
+       pd.DataFrame: Cleaned and sampled Uber data with standardized columns 
+       None: If processing fails
+
+   Notes:
+       - Downloads data if not cached locally
+       - Samples data using Cochran's formula
+       - Filters for Uber trips only (HV0003)
+       - Adds geolocation coordinates and airport identification
+       - Standardizes column names and formats
+       - Fills missing values
+   """
+   try:
+       # Load or download parquet file
+       filename = url.split('/')[-1]
+       if os.path.exists(f"data/{filename}"):
+           uber_df = pd.read_parquet(f"data/{filename}")
+       else:
+           uber_df = pd.read_parquet(url)
+           os.makedirs("data", exist_ok=True)
+           uber_df.to_parquet(f"data/{filename}")
+
+       # Sample data
+       population_size = len(uber_df)
+       sample_size = calculate_sample_size(population_size)
+       uber_df = uber_df.sample(n=sample_size, random_state=42)
+
+       # Define required and optional columns
+       required_columns = [
+           'hvfhs_license_num', 'pickup_datetime'
+       ]
+       optional_columns = [
+           'trip_miles', 'base_passenger_fare', 'tolls', 'sales_tax', 
+           'congestion_surcharge', 'airport_fee', 'driver_pay', 'bcf',
+           'PULocationID', 'DOLocationID', 'dropoff_datetime', 'tips'
+       ]
+
+       # Validate columns
+       if not all(col in uber_df.columns for col in required_columns):
+           raise ValueError(
+               f"Missing required columns: {[col for col in required_columns if col not in uber_df.columns]}"
+           )
+
+       # Select columns and filter for Uber trips
+       available_columns = required_columns + [col for col in optional_columns if col in uber_df.columns]
+       uber_df = uber_df[available_columns]
+       uber_df = uber_df[uber_df['hvfhs_license_num'] == 'HV0003']
+
+       # Add coordinates from taxi zones
+       loaded_taxi_zones = load_taxi_zones()
+       uber_df['pickup_coords'] = uber_df['PULocationID'].apply(
+           lambda loc_id: lookup_coords_for_taxi_zone_id(loc_id, loaded_taxi_zones)
+       )
+       uber_df['dropoff_coords'] = uber_df['DOLocationID'].apply(
+           lambda loc_id: lookup_coords_for_taxi_zone_id(loc_id, loaded_taxi_zones)
+       )
+       uber_df = uber_df.dropna(subset=['pickup_coords', 'dropoff_coords'])
+
+       # Process datetime fields
+       uber_df['pickup_datetime'] = pd.to_datetime(uber_df['pickup_datetime'])
+       uber_df['dropoff_datetime'] = pd.to_datetime(uber_df['dropoff_datetime']) 
+       uber_df["weekday_num"] = uber_df["dropoff_datetime"].dt.weekday + 1
+
+       # Calculate total amount
+       uber_df['total_amount'] = uber_df.apply(
+           lambda row: (
+               row['base_passenger_fare'] + row['tolls'] + row['sales_tax'] +
+               row['airport_fee'] + row['congestion_surcharge'] +
+               row['driver_pay'] + row['bcf']
+           ),
+           axis=1
+       )
+
+       # Define haversine distance calculation
+       def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+           """Calculate haversine distance between two points."""
+           R = 6371
+           lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+           dlat = lat2 - lat1
+           dlon = lon2 - lon1
+           a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+           c = 2 * atan2(sqrt(a), sqrt(1-a))
+           return R * c
+
+       # Define airport locations
+       airports = {
+           "JFK": {"lat": 40.6413, "lon": -73.7781, "radius": 5},
+           "LGA": {"lat": 40.7769, "lon": -73.8740, "radius": 5},
+           "EWR": {"lat": 40.6895, "lon": -74.1745, "radius": 5}
+       }
+
+       def assign_airport(row: pd.Series) -> str:
+           """Determine if trip starts or ends at an airport."""
+           pickup_coords = row['pickup_coords']
+           dropoff_coords = row['dropoff_coords']
+           pickup_lat, pickup_lon = pickup_coords
+           dropoff_lat, dropoff_lon = dropoff_coords
+
+           for airport, info in airports.items():
+               pickup_distance = haversine(pickup_lat, pickup_lon, info['lat'], info['lon'])
+               if pickup_distance <= info['radius']:
+                   return airport
+
+               dropoff_distance = haversine(dropoff_lat, dropoff_lon, info['lat'], info['lon'])
+               if dropoff_distance <= info['radius']:
+                   return airport
+
+           return "not airport"
+
+       # Identify airport trips
+       uber_df['airport'] = uber_df.apply(assign_airport, axis=1)
+
+       # Clean and standardize
+       uber_df = uber_df.drop(columns=['PULocationID', 'DOLocationID'])
+       columns_to_fill = [
+           'trip_miles', 'base_passenger_fare', 'tolls', 'sales_tax',
+           'congestion_surcharge', 'airport_fee', 'driver_pay', 'bcf'
+       ]
+       uber_df[columns_to_fill] = uber_df[columns_to_fill].fillna(0)
+       
+       # Format coordinates as strings
+       uber_df['pickup_coords'] = uber_df['pickup_coords'].apply(lambda x: f"{x[0]},{x[1]}")
+       uber_df['dropoff_coords'] = uber_df['dropoff_coords'].apply(lambda x: f"{x[0]},{x[1]}")
+
+       return uber_df
+
+   except Exception as e:
+       print(f"Error processing {url}: {e}")
+       return None
 
 def get_uber_data():
     all_urls = get_all_urls_from_tlc_page(TLC_URL)
@@ -337,7 +515,260 @@ def get_uber_data():
     taxi_data = get_and_clean_uber_data(all_parquet_urls)
     return taxi_data
 
-uber_data = get_uber_data()
+# Get weather data
+def get_all_weather_csvs(directory: str | None = None) -> list[str]:
+   r"""
+   Get URLs for weather data CSV files from 2020-2024.
 
+   Args:
+       directory: Optional local directory path (not used currently)
 
+   Returns:
+       list[str]: List of URLs for weather data CSV files
+
+   Notes:
+       Currently returns hardcoded GitHub URLs for 2020-2024 weather data
+   """
+   weather_urls = [
+       "https://raw.githubusercontent.com/Joanna-Wu-Weijia/4501-Final-Project/refs/heads/main/weather%20data/2020_weather.csv",
+       "https://raw.githubusercontent.com/Joanna-Wu-Weijia/4501-Final-Project/refs/heads/main/weather%20data/2021_weather.csv", 
+       "https://raw.githubusercontent.com/Joanna-Wu-Weijia/4501-Final-Project/refs/heads/main/weather%20data/2022_weather.csv",
+       "https://raw.githubusercontent.com/Joanna-Wu-Weijia/4501-Final-Project/refs/heads/main/weather%20data/2023_weather.csv",
+       "https://raw.githubusercontent.com/Joanna-Wu-Weijia/4501-Final-Project/refs/heads/main/weather%20data/2024_weather.csv",
+   ]
+   return weather_urls
+
+    def clean_month_weather_data_hourly(csv_file: str) -> pd.DataFrame:
+   r"""
+   Clean and process hourly weather data from CSV file.
+
+   Args:
+       csv_file: Path to weather data CSV file
+
+   Returns:
+       pd.DataFrame: Cleaned weather data with standardized columns and formats
+
+   Notes:
+       - Standardizes column names
+       - Maps weather type codes to human-readable labels
+       - Converts data types and handles missing values
+       - Adds derived columns for hour, weekday, and severe weather
+   """
+   # Load and select columns
+   weather_data = pd.read_csv(csv_file)
+   weather_data = weather_data[[
+       'DATE', 'HourlyPresentWeatherType', 'HourlyDryBulbTemperature',
+       'HourlyPrecipitation', 'HourlyWindSpeed'
+   ]]
+
+   # Standardize column names
+   weather_data = weather_data.rename(columns={
+       'DATE': 'date',
+       'HourlyPresentWeatherType': 'hourly weather type',
+       'HourlyDryBulbTemperature': 'hourly temperature',
+       'HourlyPrecipitation': 'hourly precipitation',
+       'HourlyWindSpeed': 'hourly windspeed'
+   })
+
+   # Convert numeric columns
+   numeric_columns = ['hourly temperature', 'hourly precipitation', 'hourly windspeed']
+   for col in numeric_columns:
+       weather_data[col] = pd.to_numeric(weather_data[col], errors='coerce')
+
+   # Define weather type mapping
+   weather_mapping = {
+       '-RA:02 |RA |RA': 'rain',
+       '-RA:02 BR:1 |RA |RA': 'rain/mist',
+       'BR:1 ||': 'mist',
+       'HZ:7 |FU |HZ': 'haze/smoke',
+       'RA:02 BR:1 |RA |RA': 'rain/mist',
+       'FG:2 |FG |': 'fog',
+       '-SN:03 |SN |': 'snow',
+       '-SN:03 BR:1 |SN |': 'snow/mist',
+       '+RA:02 |RA |RA': 'rain',
+       '|SN |': 'snow',
+       '+SN:03 |SN s |': 'heavy snow',
+       '+SN:03 FZ:8 FG:2 |FG SN |': 'snow/frezzing/fog',
+       '-SN:03 FZ:8 FG:2 |FG SN |': 'snow/frezzing/fog',
+       'SN:03 FZ:8 FG:2 |FG SN |': 'snow/frezzing/fog',
+       '+RA:02 FG:2 |FG RA |RA': 'rain/fog',
+       'HZ:7 ||HZ': 'haze',
+       '|RA |': 'rain',
+       'RA:02 |RA |RA': 'rain',
+       'UP:09 ||': 'unknown',
+       'UP:09 BR:1 ||': 'mist',
+       '+RA:02 BR:1 |RA |RA': 'rain',
+       '-RA:02 ||': 'rain',
+       'RA:02 FG:2 |FG RA |RA': 'rain/fog',
+       '-RA:02 FG:2 |FG RA |RA': 'rain/fog',
+       'SN:03 |SN s |s': 'snow',
+       '-SN:03 FG:2 |FG SN |': 'snow/fog',
+       'SN:03 FG:2 |FG SN |': 'snow/fog'
+   }
+
+   # Map weather types and handle special cases
+   weather_data['hourly weather type'] = weather_data['hourly weather type'].map(weather_mapping)
+   weather_data.loc[weather_data['hourly precipitation'] == 0, 'hourly weather type'] = 'sunny'
+   weather_data.loc[
+       (weather_data['hourly precipitation'].isna()) & 
+       (weather_data['hourly weather type'].isna()),
+       'hourly weather type'
+   ] = 'unknown'
+
+   # Process datetime and add derived columns
+   weather_data['date'] = pd.to_datetime(weather_data['date'])
+   weather_data['hour'] = weather_data['date'].dt.hour
+   weather_data['weekday_num'] = weather_data['date'].dt.weekday
+
+   # Define and mark severe weather conditions
+   severe_weather_conditions = [
+       '-SN:03 |SN |', '-SN:03 BR:1 |SN |', '+RA:02 |RA |RA', '|SN |',
+       '+SN:03 |SN s |', '+SN:03 FZ:8 FG:2 |FG SN |', '-SN:03 FZ:8 FG:2 |FG SN |',
+       'SN:03 FZ:8 FG:2 |FG SN |', '+RA:02 FG:2 |FG RA |RA', '+RA:02 BR:1 |RA |RA',
+       'SN:03 |SN s |s', '-SN:03 FG:2 |FG SN |', 'SN:03 FG:2 |FG SN |'
+   ]
+
+   weather_data['severe weather'] = 0
+   weather_data.loc[weather_data['hourly weather type'].isin(
+       [weather_mapping[condition] for condition in severe_weather_conditions]
+   ), 'severe weather'] = 1
+   weather_data.loc[weather_data['hourly weather type'] == 'unknown', 'severe weather'] = None
+
+   return weather_data
+
+def clean_month_weather_data_daily(csv_file: str) -> pd.DataFrame:
+   r"""
+   Clean and aggregate hourly weather data to daily summaries.
+
+   Args:
+       csv_file: Path to weather data CSV file
+
+   Returns:
+       pd.DataFrame: Daily aggregated weather data with columns:
+           - date: Date of weather records
+           - daily weather type: Dominant weather type for the day
+           - daily temperature: Average temperature
+           - daily precipitation: Average precipitation
+           - daily windspeed: Average wind speed
+
+   Notes:
+       - Aggregates hourly data to daily summaries
+       - Determines daily weather type based on priority (snow > rain > other)
+       - Averages numeric measurements (temperature, precipitation, wind speed)
+   """
+   # Load and select columns
+   weather_data = pd.read_csv(csv_file)
+   weather_data = weather_data[[
+       'DATE', 'HourlyPresentWeatherType', 'HourlyDryBulbTemperature',
+       'HourlyPrecipitation', 'HourlyWindSpeed'
+   ]]
+   
+   # Standardize column names
+   weather_data.columns = [
+       'datetime', 'weather_type', 'temperature', 
+       'precipitation', 'wind_speed'
+   ]
+
+   # Convert data types
+   weather_data['date'] = pd.to_datetime(weather_data['datetime']).dt.date
+   numeric_columns = ['temperature', 'precipitation', 'wind_speed']
+   for col in numeric_columns:
+       weather_data[col] = pd.to_numeric(weather_data[col], errors='coerce')
+
+   # Define weather type mapping
+   weather_mapping = {
+       # Rain conditions
+       '-RA:02 |RA |RA': 'rain',
+       '-RA:02 BR:1 |RA |RA': 'rain', 
+       'RA:02 BR:1 |RA |RA': 'rain',
+       '+RA:02 |RA |RA': 'rain',
+       '+RA:02 FG:2 |FG RA |RA': 'rain',
+       '|RA |': 'rain',
+       'RA:02 |RA |RA': 'rain',
+       '+RA:02 BR:1 |RA |RA': 'rain',
+       '-RA:02 ||': 'rain',
+       'RA:02 FG:2 |FG RA |RA': 'rain',
+       '-RA:02 FG:2 |FG RA |RA': 'rain',
+       
+       # Snow conditions
+       '-SN:03 |SN |': 'snow',
+       '-SN:03 BR:1 |SN |': 'snow',
+       '|SN |': 'snow',
+       '+SN:03 |SN s |': 'snow',
+       '+SN:03 FZ:8 FG:2 |FG SN |': 'snow',
+       '-SN:03 FZ:8 FG:2 |FG SN |': 'snow',
+       'SN:03 FZ:8 FG:2 |FG SN |': 'snow',
+       'SN:03 |SN s |s': 'snow',
+       '-SN:03 FG:2 |FG SN |': 'snow',
+       'SN:03 FG:2 |FG SN |': 'snow',
+       
+       # Other conditions
+       'BR:1 ||': 'other',
+       'HZ:7 |FU |HZ': 'other',
+       'FG:2 |FG |': 'other',
+       'HZ:7 ||HZ': 'other',
+       'UP:09 ||': 'unknown',
+       'UP:09 BR:1 ||': 'other'
+   }
+
+   # Map weather types
+   weather_data['MappedWeather'] = weather_data['weather_type'].map(weather_mapping).fillna('other')
+
+   def determine_weather_type(weather_series: pd.Series) -> str:
+       """Determine daily weather type with priority: snow > rain > other."""
+       if 'snow' in weather_series.values:
+           return 'snow'
+       elif 'rain' in weather_series.values:
+           return 'rain'
+       return 'other'
+
+   # Aggregate to daily data
+   daily_aggregated = weather_data.groupby('date').agg({
+       'MappedWeather': determine_weather_type,
+       'temperature': 'mean',
+       'precipitation': 'mean',
+       'wind_speed': 'mean'
+   }).reset_index()
+
+   # Rename columns to final format
+   daily_aggregated.columns = [
+       'date', 'daily weather type', 'daily temperature',
+       'daily precipitation', 'daily windspeed'
+   ]
+
+   return daily_aggregated
+
+    def load_and_clean_weather_data() -> tuple[pd.DataFrame, pd.DataFrame]:
+   r"""
+   Load and process weather data files into hourly and daily formats.
+   
+   Returns:
+       tuple: Two DataFrames containing:
+           - Hourly weather data concatenated from all input files
+           - Daily weather data concatenated from all input files
+           
+   Notes:
+       - Processes CSV files obtained from get_all_weather_csvs()
+       - Cleans and standardizes both hourly and daily formats
+       - Combines data from all years (2020-2024)
+   """
+   # Get list of weather CSV files
+   weather_csv_files = get_all_weather_csvs(WEATHER_CSV_DIR)
+   
+   # Initialize lists to store processed DataFrames
+   hourly_dataframes = []
+   daily_dataframes = []
+
+   # Process each CSV file
+   for csv_file in weather_csv_files:
+       hourly_dataframe = clean_month_weather_data_hourly(csv_file)
+       daily_dataframe = clean_month_weather_data_daily(csv_file)
+       hourly_dataframes.append(hourly_dataframe)
+       daily_dataframes.append(daily_dataframe)
+       
+   # Combine all monthly data into single DataFrames
+   hourly_data = pd.concat(hourly_dataframes)
+   daily_data = pd.concat(daily_dataframes)
+   
+   return hourly_data, daily_data
 
