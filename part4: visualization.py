@@ -148,67 +148,137 @@ plt.tight_layout()
 plt.show()
 
 ### v4
-import pandas as pd
-import matplotlib.pyplot as plt
+# Database connection setup
+conn = sqlite3.connect('project.db')
 
-# Simulated data structure (replace with actual data source if available)
-data = {
-    'month': pd.date_range(start='2020-01-01', end='2024-08-01', freq='MS').strftime('%Y-%m').tolist() * 2,
-    'service_type': ['Yellow Taxi'] * 56 + ['Uber'] * 56,
-    'total_amount': [50000 + (i * 1000) for i in range(56)] + [45000 + (i * 900) for i in range(56)],
-    'fares': [40000 + (i * 800) for i in range(56)] + [36000 + (i * 700) for i in range(56)],
-    'surcharges': [5000 + (i * 50) for i in range(56)] + [4500 + (i * 40) for i in range(56)],
-    'taxes': [3000 + (i * 30) for i in range(56)] + [2500 + (i * 20) for i in range(56)],
-    'tolls': [2000 + (i * 20) for i in range(56)] + [2000 + (i * 15) for i in range(56)],
-}
+# Define SQL query for fare analysis
+query = """
+WITH TaxiMonthly AS (
+   SELECT 
+       strftime('%Y-%m', pickup_datetime) AS month,
+       SUM(total_amount - (COALESCE(tolls_amount, 0) + 
+                          COALESCE(mta_tax, 0) + 
+                          COALESCE(improvement_surcharge, 0) + 
+                          COALESCE(congestion_surcharge, 0) + 
+                          COALESCE(airport_fee, 0))) AS base_fares,
+       SUM(COALESCE(tolls_amount, 0)) AS tolls,
+       SUM(COALESCE(mta_tax, 0) + 
+           COALESCE(improvement_surcharge, 0) + 
+           COALESCE(congestion_surcharge, 0) + 
+           COALESCE(airport_fee, 0)) AS surcharges_and_taxes,
+       'Taxi' as service_type
+   FROM taxi_trips
+   WHERE pickup_datetime BETWEEN '2020-01-01' AND '2024-08-31'
+   GROUP BY strftime('%Y-%m', pickup_datetime)
+),
+UberMonthly AS (
+   SELECT 
+       strftime('%Y-%m', pickup_datetime) AS month,
+       SUM(base_passenger_fare) AS base_fares,
+       SUM(COALESCE(tolls, 0)) AS tolls,
+       SUM(COALESCE(sales_tax, 0) + 
+           COALESCE(congestion_surcharge, 0) + 
+           COALESCE(airport_fee, 0) + 
+           COALESCE(bcf, 0)) AS surcharges_and_taxes,
+       'Uber' as service_type
+   FROM uber_trips
+   WHERE pickup_datetime BETWEEN '2020-01-01' AND '2024-08-31'
+   GROUP BY strftime('%Y-%m', pickup_datetime)
+)
+SELECT * FROM TaxiMonthly
+UNION ALL
+SELECT * FROM UberMonthly
+ORDER BY month, service_type;
+"""
 
-# Create DataFrame
-df = pd.DataFrame(data)
+# Execute query and process data
+monthly_fares = pd.read_sql(query, conn)
+conn.close()
 
-# Convert 'month' to datetime for easier plotting and analysis
-df['month'] = pd.to_datetime(df['month'])
+# Data preprocessing
+monthly_fares['month'] = pd.to_datetime(monthly_fares['month'] + '-01')
 
-# Group by month and service type, aggregating values
-monthly_data = df.groupby(['month', 'service_type']).sum().reset_index()
+# Create visualization
+def create_fare_breakdown_plots():
+   """Create stacked bar plots showing fare breakdowns for Taxi and Uber services."""
+   fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 12))
+   
+   # Plot configurations
+   plot_params = {
+       'alpha': 0.7,
+       'width': 20
+   }
+   
+   colors = {
+       'base': 'lightblue',
+       'tolls': 'orange',
+       'surcharges': 'green'
+   }
 
-# Separate data for plotting
-yellow_taxi_data = monthly_data[monthly_data['service_type'] == 'Yellow Taxi']
-uber_data = monthly_data[monthly_data['service_type'] == 'Uber']
+   # Plot Taxi data
+   taxi_data = monthly_fares[monthly_fares['service_type'] == 'Taxi']
+   _create_stacked_bars(ax1, taxi_data, colors, plot_params, 'Yellow Taxi')
 
-# Plotting the total amounts over time for both services
-plt.figure(figsize=(12, 6))
-plt.plot(yellow_taxi_data['month'], yellow_taxi_data['total_amount'], label='Yellow Taxi - Total Amount', marker='o')
-plt.plot(uber_data['month'], uber_data['total_amount'], label='Uber - Total Amount', marker='o')
-plt.title('Monthly Total Fares: Yellow Taxi vs. Uber (2020-2024)')
-plt.xlabel('Month')
-plt.ylabel('Total Amount ($)')
-plt.legend()
-plt.grid(True)
-plt.tight_layout()
-plt.show()
+   # Plot Uber data
+   uber_data = monthly_fares[monthly_fares['service_type'] == 'Uber']
+   _create_stacked_bars(ax2, uber_data, colors, plot_params, 'Uber')
 
-# Stacked bar chart for fare breakdown (Fares, Surcharges, Taxes, Tolls)
-fare_components = ['fares', 'surcharges', 'taxes', 'tolls']
+   # Format axes and layout
+   _format_axes([ax1, ax2])
+   plt.tight_layout()
+   plt.show()
 
-# Yellow Taxi breakdown
-yellow_taxi_data.set_index('month', inplace=True)
-yellow_taxi_data[fare_components].plot(kind='bar', stacked=True, figsize=(12, 6))
-plt.title('Yellow Taxi Monthly Fare Breakdown (2020-2024)')
-plt.xlabel('Month')
-plt.ylabel('Amount ($)')
-plt.legend(title='Components')
-plt.tight_layout()
-plt.show()
+def _create_stacked_bars(ax, data, colors, params, service_type):
+   """Create stacked bar chart for given service type."""
+   # Base fares
+   ax.bar(data['month'],
+          data['base_fares'],
+          label='Base Fares',
+          color=colors['base'],
+          **params)
+   
+   # Tolls
+   ax.bar(data['month'],
+          data['tolls'],
+          bottom=data['base_fares'],
+          label='Tolls',
+          color=colors['tolls'],
+          **params)
+   
+   # Surcharges and taxes
+   ax.bar(data['month'],
+          data['surcharges_and_taxes'],
+          bottom=data['base_fares'] + data['tolls'],
+          label='Surcharges & Taxes',
+          color=colors['surcharges'],
+          **params)
+   
+   # Customize plot
+   ax.set_title(f'Monthly Total Fares Breakdown: {service_type} (2020-2024)',
+                pad=20,
+                fontsize=14)
+   ax.set_ylabel('Total Amount ($)', fontsize=12)
+   ax.grid(True, alpha=0.3)
+   ax.legend()
 
-# Uber breakdown
-uber_data.set_index('month', inplace=True)
-uber_data[fare_components].plot(kind='bar', stacked=True, figsize=(12, 6))
-plt.title('Uber Monthly Fare Breakdown (2020-2024)')
-plt.xlabel('Month')
-plt.ylabel('Amount ($)')
-plt.legend(title='Components')
-plt.tight_layout()
-plt.show()
+def _format_axes(axes):
+   """Format axes for both plots."""
+   for i, ax in enumerate(axes):
+       # Format x-axis
+       ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+       ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+       
+       # Rotate labels
+       plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+       
+       # Only show x-label on bottom plot
+       if i == 0:
+           ax.set_xlabel('')
+       else:
+           ax.set_xlabel('Month', fontsize=12)
+
+# Generate plots
+create_fare_breakdown_plots()
 
 ###v5:
 taxi_data['hour'] = taxi_data['pickup_datetime'].dt.round('H')
