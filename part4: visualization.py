@@ -1,41 +1,63 @@
 ### v1:
-def plot_hourly_taxi_distribution(dataframe):
-    """
-    Plot the hourly distribution of taxi rides with both ride counts and percentages.
-    """
-    figure, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 12))
+def plot_hourly_taxi_distribution(dataframe: pd.DataFrame) -> None:
+   r"""
+   Create a two-panel visualization of hourly taxi ride distribution.
 
-    ax1.bar(dataframe['X'], dataframe['Y'], color='orange', alpha=0.7)
-    ax1.set_title('Hourly Distribution of Taxi Rides (2020-2024)', pad=20, size=14)
-    ax1.set_xlabel('Hour of Day')
-    ax1.set_ylabel('Number of Rides')
-    ax1.grid(True, alpha=0.3)
-    ax1.set_xticks(range(24))
-    
-    for i, v in enumerate(dataframe['Y']):
-        ax1.text(i, v, str(v), ha='center', va='bottom')
-    
-    ax2.bar(dataframe['X'], dataframe['percentage'], color='green', alpha=0.7)
-    ax2.set_title('Hourly Distribution of Taxi Rides (Percentage)', pad=20, size=14)
-    ax2.set_xlabel('Hour of Day')
-    ax2.set_ylabel('Percentage of Total Rides (%)')
-    ax2.grid(True, alpha=0.3)
-    ax2.set_xticks(range(24))
-    
-    for i, v in enumerate(dataframe['percentage']):
-        ax2.text(i, v, f'{v:.2f}%', ha='center', va='bottom')
-    
-    plt.tight_layout()
-    plt.show()
+   Args:
+       dataframe: DataFrame containing columns:
+           - X: Hour of day (0-23)
+           - Y: Number of rides
+           - percentage: Percentage of total rides
 
-def get_hourly_taxi_data():
-    return pd.read_csv('hourly_taxi_popularity.csv')
+   Notes:
+       Creates two plots:
+       - Top: Absolute number of rides by hour
+       - Bottom: Percentage of total rides by hour
+       Both include grid lines and value labels above each bar
+   """
+   # Set up figure with two subplots
+   figure, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 12))
 
-taxi_data_print = get_hourly_taxi_data()
-plot_hourly_taxi_distribution_print(taxi_data)
+   # Plot absolute numbers
+   ax1.bar(dataframe['X'], dataframe['Y'], color='orange', alpha=0.7)
+   ax1.set_title('Hourly Distribution of Taxi Rides (2020-2024)', pad=20, size=14)
+   ax1.set_xlabel('Hour of Day')
+   ax1.set_ylabel('Number of Rides')
+   ax1.grid(True, alpha=0.3)
+   ax1.set_xticks(range(24))
+   
+   # Add value labels for absolute numbers
+   for i, v in enumerate(dataframe['Y']):
+       ax1.text(i, v, str(v), ha='center', va='bottom')
+   
+   # Plot percentages
+   ax2.bar(dataframe['X'], dataframe['percentage'], color='green', alpha=0.7)
+   ax2.set_title('Hourly Distribution of Taxi Rides (Percentage)', pad=20, size=14)
+   ax2.set_xlabel('Hour of Day')
+   ax2.set_ylabel('Percentage of Total Rides (%)')
+   ax2.grid(True, alpha=0.3)
+   ax2.set_xticks(range(24))
+   
+   # Add value labels for percentages
+   for i, v in enumerate(dataframe['percentage']):
+       ax2.text(i, v, f'{v:.2f}%', ha='center', va='bottom')
+   
+   plt.tight_layout()
+   plt.show()
+
+
+def get_hourly_taxi_data() -> pd.DataFrame:
+   r"""
+   Load hourly taxi ride data from CSV file.
+
+   Returns:
+       pd.DataFrame: Hourly taxi ride statistics
+   """
+   return pd.read_csv('hourly_taxi_popularity.csv')
 
 ### v2:
 uber_data.rename(columns={'trip_miles': 'trip_distance'}, inplace=True)
+
 combined_trips = pd.concat([taxi_data[['pickup_datetime', 'trip_distance']],
                             uber_data[['pickup_datetime', 'trip_distance']]])
 
@@ -71,7 +93,6 @@ plt.title('Average Distance Traveled per Month (January 2020 - August 2024)\nTax
 plt.xticks(ticks=range(1, 13), labels=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])
 plt.legend()
 plt.grid(visible=True)
-plt.show()
 
 ### v3:
 combined_trips = pd.concat([taxi_data[['pickup_datetime', 'trip_distance', 'dropoff_coords']],
@@ -212,7 +233,6 @@ uber_merged = uber_merged[
     (uber_merged['tips'] < np.percentile(uber_merged['tips'], 99))
 ]
 
-
 # Plotting
 fig, axes = plt.subplots(2, 2, figsize=(15, 10))
 
@@ -246,7 +266,7 @@ plt.show()
 ### v6:
 m = folium.Map(location=[40.7128, -74.0060], zoom_start=11)
 
-# Note: Using only pickup coordinates since pickup data is conclusive while dropoff data is not
+# only use pickup time since that is conclusiove
 # taxi data
 taxi_coords = [[float(coord.split(',')[0]), float(coord.split(',')[1])] 
                for coord in taxi_data['pickup_coords']]
