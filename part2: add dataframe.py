@@ -87,86 +87,108 @@ with open(DATABASE_SCHEMA_FILE, "w") as f:
 with engine.connect() as connection:
     pass
 
-def write_dataframes_to_table(table_to_df_dict):
-    with engine.connect() as conn:
-        conn.execute(db.text(HOURLY_WEATHER_SCHEMA))
-        conn.execute(db.text(DAILY_WEATHER_SCHEMA))
-        conn.execute(db.text(TAXI_TRIPS_SCHEMA))
-        conn.execute(db.text(UBER_TRIPS_SCHEMA))  # 添加 UBER_TRIPS_SCHEMA
-        conn.commit()
-        
-        for table_name, df in table_to_df_dict.items():
-            if table_name == "hourly_weather":
-                df = df.rename(columns={
-                    'date': 'date',
-                    'hourly weather type': 'hourly_weather_type',
-                    'hourly temperature': 'hourly_temperature',
-                    'hourly precipitation': 'hourly_precipitation',
-                    'hourly windspeed': 'hourly_windspeed',
-                    'hour': 'hour',
-                    'weekday_num': 'weekday_num',
-                    'severe weather': 'severe_weather'
-                })
-            elif table_name == "daily_weather":
-                df = df.rename(columns={
-                    'date': 'date',
-                    'daily weather type': 'daily_weather_type',
-                    'daily temperature': 'avg_temperature',
-                    'daily precipitation': 'avg_precipitation',
-                    'daily windspeed': 'avg_windspeed'
-                })
-            elif table_name == "taxi_trips":
-                df = df.rename(columns={
-                    'pickup_datetime': 'pickup_datetime',
-                    'dropoff_datetime': 'dropoff_datetime',
-                    'RatecodeID': 'rate_code_id',
-                    'trip_distance': 'trip_distance',
-                    'extra': 'extra',
-                    'mta_tax': 'mta_tax',
-                    'tip_amount': 'tip_amount',
-                    'tolls_amount': 'tolls_amount',
-                    'improvement_surcharge': 'improvement_surcharge',
-                    'total_amount': 'total_amount',
-                    'congestion_surcharge': 'congestion_surcharge',
-                    'Airport_fee': 'airport_fee',
-                    'pickup_coords': 'pickup_coords',
-                    'dropoff_coords': 'dropoff_coords',
-                    'weekday_num': 'weekday_num',
-                    'airport': 'airport'
-                })
-            elif table_name == "uber_trips":
-                df = df.rename(columns={
-                    'hvfhs_license_num': 'hvfhs_license_num',
-                    'pickup_datetime': 'pickup_datetime',
-                    'dropoff_datetime': 'dropoff_datetime',
-                    'trip_miles': 'trip_miles',
-                    'base_passenger_fare': 'base_passenger_fare',
-                    'tolls': 'tolls',
-                    'sales_tax': 'sales_tax',
-                    'congestion_surcharge': 'congestion_surcharge',
-                    'airport_fee': 'airport_fee',
-                    'driver_pay': 'driver_pay',
-                    'bcf': 'bcf',
-                    'pickup_coords': 'pickup_coords',
-                    'dropoff_coords': 'dropoff_coords',
-                    'weekday_num': 'weekday_num',
-                    'total_amount': 'total_amount',
-                    'airport': 'airport'
-                })
-                
-            df.to_sql(
-                name=table_name,
-                con=engine,
-                if_exists='append',
-                index=False
-            )
-            print(f"Successfully wrote {len(df)} rows to table {table_name}")
+def write_dataframes_to_table(table_to_df_dict: dict[str, pd.DataFrame]) -> None:
+   r"""
+   Write multiple DataFrames to their corresponding database tables.
+
+   Args:
+       table_to_df_dict: Dictionary mapping table names to DataFrames
+
+   Notes:
+       - Creates tables if they don't exist using predefined schemas
+       - Supported tables:
+           - hourly_weather: Hourly weather measurements
+           - daily_weather: Daily weather summaries  
+           - taxi_trips: Yellow taxi trip records
+           - uber_trips: Uber trip records
+       - Standardizes column names before writing
+       - Appends data if table already exists
+   """
+   # Create or verify tables exist
+   with engine.connect() as conn:
+       conn.execute(db.text(HOURLY_WEATHER_SCHEMA))
+       conn.execute(db.text(DAILY_WEATHER_SCHEMA))
+       conn.execute(db.text(TAXI_TRIPS_SCHEMA))
+       conn.execute(db.text(UBER_TRIPS_SCHEMA))
+       conn.commit()
+       
+       # Column mapping for each table
+       column_mappings = {
+           "hourly_weather": {
+               'date': 'date',
+               'hourly weather type': 'hourly_weather_type',
+               'hourly temperature': 'hourly_temperature',
+               'hourly precipitation': 'hourly_precipitation',
+               'hourly windspeed': 'hourly_windspeed',
+               'hour': 'hour',
+               'weekday_num': 'weekday_num',
+               'severe weather': 'severe_weather'
+           },
+           "daily_weather": {
+               'date': 'date',
+               'daily weather type': 'daily_weather_type',
+               'daily temperature': 'avg_temperature',
+               'daily precipitation': 'avg_precipitation',
+               'daily windspeed': 'avg_windspeed'
+           },
+           "taxi_trips": {
+               'pickup_datetime': 'pickup_datetime',
+               'dropoff_datetime': 'dropoff_datetime',
+               'RatecodeID': 'rate_code_id',
+               'trip_distance': 'trip_distance',
+               'extra': 'extra',
+               'mta_tax': 'mta_tax',
+               'tip_amount': 'tip_amount',
+               'tolls_amount': 'tolls_amount',
+               'improvement_surcharge': 'improvement_surcharge',
+               'total_amount': 'total_amount',
+               'congestion_surcharge': 'congestion_surcharge',
+               'Airport_fee': 'airport_fee',
+               'pickup_coords': 'pickup_coords',
+               'dropoff_coords': 'dropoff_coords',
+               'weekday_num': 'weekday_num',
+               'airport': 'airport'
+           },
+           "uber_trips": {
+               'hvfhs_license_num': 'hvfhs_license_num',
+               'pickup_datetime': 'pickup_datetime',
+               'dropoff_datetime': 'dropoff_datetime',
+               'trip_miles': 'trip_miles',
+               'base_passenger_fare': 'base_passenger_fare',
+               'tolls': 'tolls',
+               'sales_tax': 'sales_tax',
+               'congestion_surcharge': 'congestion_surcharge',
+               'airport_fee': 'airport_fee',
+               'driver_pay': 'driver_pay',
+               'bcf': 'bcf',
+               'pickup_coords': 'pickup_coords',
+               'dropoff_coords': 'dropoff_coords',
+               'weekday_num': 'weekday_num',
+               'total_amount': 'total_amount',
+               'airport': 'airport',
+               'tips': 'tips'
+           }
+       }
+       
+       # Write each DataFrame to its table
+       for table_name, df in table_to_df_dict.items():
+           # Standardize column names
+           if table_name in column_mappings:
+               df = df.rename(columns=column_mappings[table_name])
+           
+           # Write to database
+           df.to_sql(
+               name=table_name,
+               con=engine,
+               if_exists='append',
+               index=False
+           )
+           print(f"Successfully wrote {len(df)} rows to table {table_name}")
+
 map_table_name_to_dataframe = {
     "taxi_trips": taxi_data,
     "uber_trips": uber_data,
     "hourly_weather": hourly_weather_data,
     "daily_weather": daily_weather_data,
 }
-
-write_dataframes_to_table(map_table_name_to_dataframe)
 
