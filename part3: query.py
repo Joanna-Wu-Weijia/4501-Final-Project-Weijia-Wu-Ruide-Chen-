@@ -163,47 +163,74 @@ df.to_csv(QUERY_5_FILENAME, index=False)
 conn.close()
 
 ### Q6
-QUERY_6 = """
-WITH DailyWeatherData AS (
-    SELECT 
-        date AS day,
-        avg_precipitation AS precipitation,
-        avg_windspeed AS windspeed
-    FROM daily_weather
-    WHERE date BETWEEN '2023-09-25' AND '2023-10-03'
+# Database connection configuration
+conn = sqlite3.connect('project.db')
+cursor = conn.cursor()
+
+# SQL query to generate hourly data with weather and ride counts
+query = """
+WITH RECURSIVE GeneratedHours AS (
+   SELECT datetime('2023-09-25 00:00:00') AS hour
+   UNION ALL
+   SELECT datetime(hour, '+1 hour') 
+   FROM GeneratedHours
+   WHERE hour < '2023-10-03 23:00:00'
 ),
-DailyRideCounts AS (
-    SELECT 
-        DATE(pickup_datetime) AS day,
-        COUNT(*) AS total_rides
-    FROM (
-        SELECT pickup_datetime FROM taxi_trips
-        UNION ALL
-        SELECT pickup_datetime FROM uber_trips
-    )
-    WHERE DATE(pickup_datetime) BETWEEN '2023-09-25' AND '2023-10-03'
-    GROUP BY DATE(pickup_datetime)
+
+HourlyWeatherData AS (
+   SELECT 
+       strftime('%Y-%m-%d %H:00:00', date || ' ' || hour || ':00:00') AS hour,
+       AVG(hourly_precipitation) AS precipitation,
+       AVG(hourly_windspeed) AS windspeed
+   FROM hourly_weather
+   WHERE date BETWEEN '2023-09-25' AND '2023-10-03'
+   GROUP BY strftime('%Y-%m-%d %H:00:00', date || ' ' || hour || ':00:00')
 ),
+
+HourlyRideCounts AS (
+   SELECT 
+       strftime('%Y-%m-%d %H:00:00', pickup_datetime) AS hour,
+       COUNT(*) AS total_rides
+   FROM (
+       SELECT pickup_datetime FROM taxi_trips
+       UNION ALL
+       SELECT pickup_datetime FROM uber_trips
+   )
+   WHERE pickup_datetime BETWEEN '2023-09-25 00:00:00' AND '2023-10-03 23:59:59'
+   GROUP BY strftime('%Y-%m-%d %H:00:00', pickup_datetime)
+),
+
 CombinedData AS (
-    SELECT 
-        d.day AS date,
-        COALESCE(r.total_rides, 0) AS total_rides,
-        COALESCE(d.precipitation, 0.0) AS precipitation,
-        COALESCE(d.windspeed, 0.0) AS windspeed
-    FROM DailyWeatherData d
-    LEFT JOIN DailyRideCounts r
-    ON d.day = r.day
+   SELECT 
+       g.hour AS datetime,
+       COALESCE(r.total_rides, 0) AS total_rides,
+       COALESCE(w.precipitation, 0.0) AS precipitation,
+       COALESCE(w.windspeed, 0.0) AS windspeed
+   FROM GeneratedHours g
+   LEFT JOIN HourlyRideCounts r ON g.hour = r.hour
+   LEFT JOIN HourlyWeatherData w ON g.hour = w.hour
 )
+
 SELECT 
-    date,
-    total_rides,
-    precipitation,
-    windspeed
+   datetime,
+   total_rides,
+   precipitation,
+   windspeed
 FROM CombinedData
-ORDER BY date ASC;
+ORDER BY datetime ASC;
 """
 
-conn = sqlite3.connect('project.db')
-df = pd.read_sql_query(QUERY_6, conn)
-df.to_csv("Tropical Storm Ophelia.csv", index=False)
-conn.close()
+try:
+   # Execute query and fetch results
+   cursor.execute(query)
+   result_tuples = cursor.fetchall()
+
+   # Display results
+   for row in result_tuples:
+       print(row)
+
+finally:
+   # Ensure database connection is properly closed
+   cursor.close()
+   conn.commit()
+   conn.close()
