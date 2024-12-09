@@ -1,0 +1,14 @@
+*.log
+
+node_modules/
+
+config.env
+
+__pycache__/
+*.pyc
+
+*.csv
+*.parquet
+
+*.db
+*.sqlite
