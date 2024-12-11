@@ -10,5 +10,13 @@ __pycache__/
 *.csv
 *.parquet
 
+*.dbf
+*.prj
+*.sbn
+*.sbx
+*.shp
+*.shp.xml
+*.shx
+
 *.db
 *.sqlite
